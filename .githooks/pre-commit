@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# 커밋 전 검사: 비밀 정보, 원본 데이터, 대용량 파일 차단
+set -u
+fail=0
+files=$(git diff --cached --name-only --diff-filter=ACM)
+[ -z "$files" ] && exit 0
+
+while IFS= read -r f; do
+  [ -f "$f" ] || continue
+  case "$f" in
+    *.env|.env|*/.env|.env.*|*/.env.*)
+      case "$f" in *.env.example) ;; *) echo "[pre-commit] 차단: 환경 변수 파일 $f"; fail=1;; esac ;;
+    *.pem|*.key|*.p12)
+      echo "[pre-commit] 차단: 인증서/키 파일 $f"; fail=1 ;;
+    *.csv)
+      case "$f" in data/fixtures/*) ;; *) echo "[pre-commit] 차단: fixtures 밖의 CSV $f (원본 데이터는 커밋 금지)"; fail=1;; esac ;;
+  esac
+  size=$(wc -c < "$f")
+  if [ "$size" -gt 5242880 ]; then
+    echo "[pre-commit] 차단: 5MB 초과 파일 $f ($size bytes)"; fail=1
+  fi
+done <<< "$files"
+
+# 스테이징된 변경 내용에서 API 키 패턴 검사
+if git diff --cached -U0 | grep -E '^\+' | grep -qE 'sk-ant-[A-Za-z0-9_-]{10,}|sk-[A-Za-z0-9]{32,}|ghp_[A-Za-z0-9]{30,}|AKIA[0-9A-Z]{16}'; then
+  echo "[pre-commit] 차단: API 키로 보이는 문자열이 포함되어 있습니다."; fail=1
+fi
+
+if [ "$fail" -ne 0 ]; then
+  echo "[pre-commit] 커밋이 중단되었습니다. 위 항목을 제거한 뒤 다시 커밋하세요."
+  exit 1
+fi
+exit 0
