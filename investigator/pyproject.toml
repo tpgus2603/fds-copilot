@@ -1,0 +1,13 @@
+[project]
+name = "fds-investigator"
+version = "0.1.0"
+description = "FDS investigation copilot MCP and agent runtime"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "anthropic",
+    "mcp>=1,<2",
+    "pydantic>=2,<3",
+]
+
+[dependency-groups]
+dev = ["pytest"]

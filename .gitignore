@@ -1,0 +1,46 @@
+# ===== OS / IDE =====
+.DS_Store
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+
+# ===== Secrets (절대 커밋 금지) =====
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# ===== Data (Kaggle 원본은 커밋하지 않음, 합성 fixtures만 허용) =====
+data/*
+!data/README.md
+!data/fixtures/
+*.csv
+!data/fixtures/*.csv
+*.db
+*.sqlite
+
+# ===== Java / Gradle (backend) =====
+.gradle/
+build/
+out/
+!gradle/wrapper/gradle-wrapper.jar
+
+# ===== Python (investigator) =====
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# ===== Node (frontend) =====
+node_modules/
+dist/
+coverage/
+
+# ===== Logs =====
+*.log
+logs/
