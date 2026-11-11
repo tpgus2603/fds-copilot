@@ -1,0 +1,26 @@
+name: 설계 결정
+description: 여러 선택지 중 결정이 필요한 논의
+title: "[decision] "
+labels: ["decision"]
+body:
+  - type: textarea
+    id: context
+    attributes:
+      label: 논의 배경
+    validations:
+      required: true
+  - type: textarea
+    id: options
+    attributes:
+      label: 선택지와 트레이드오프
+      value: |
+        | 선택지 | 장점 | 단점 |
+        |---|---|---|
+        |  |  |  |
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: 결정과 반영 문서
+      description: 결정 후 작성. 반영한 설계 문서와 progress 기록
