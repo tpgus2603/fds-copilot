@@ -1,0 +1,31 @@
+name: 버그
+description: 의도와 다르게 동작하는 문제
+title: "[bug] "
+labels: ["type: bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: 현상
+      description: 무엇이 잘못되었는지
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: 재현 방법
+      description: 실행한 명령, 입력 데이터(합성 데이터 시나리오 등)
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 기대 결과
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 로그
+      description: 키와 개인정보는 지우고 붙여 넣습니다
+      render: text
