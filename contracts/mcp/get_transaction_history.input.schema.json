@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/tpgus2603/fds-copilot/contracts/mcp/get_transaction_history.input.schema.json",
+  "title": "get_transaction_history input",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["target_transaction_id"],
+  "properties": {
+    "target_transaction_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[A-Za-z0-9]+$",
+      "description": "조사 대상 거래 ID (trans_num)"
+    },
+    "lookback_days": {
+      "type": "integer",
+      "minimum": 7,
+      "maximum": 365,
+      "default": 90,
+      "description": "기준 시점 이전 비교 기간(일)"
+    }
+  }
+}

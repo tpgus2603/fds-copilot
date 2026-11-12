@@ -5,12 +5,14 @@ on:
     paths:
       - "investigator/**"
       - "contracts/**"
+      - "docs/03_mcp_tool_spec.md"
       - ".github/workflows/investigator-ci.yml"
   push:
     branches: [main]
     paths:
       - "investigator/**"
       - "contracts/**"
+      - "docs/03_mcp_tool_spec.md"
       - ".github/workflows/investigator-ci.yml"
 
 permissions:

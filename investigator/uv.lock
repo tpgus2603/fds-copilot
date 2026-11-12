@@ -173,6 +173,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "jsonschema" },
     { name = "pytest" },
 ]
 
@@ -184,7 +185,10 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
-dev = [{ name = "pytest" }]
+dev = [
+    { name = "jsonschema", specifier = ">=4,<5" },
+    { name = "pytest" },
+]
 
 [[package]]
 name = "h11"

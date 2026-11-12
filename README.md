@@ -2,7 +2,7 @@
 
 카드 이상거래탐지(FDS) 업무에서 **규칙 기반 1차 탐지 이후의 조사 과정**을 AI 에이전트가 보조하는 시스템입니다. 에이전트는 MCP 툴로 거래 이력, 가맹점 지표, 지리적 이상치를 조회하고, 모든 주장에 근거 ID가 연결된 조사 보고서 초안을 작성합니다. **최종 판단은 사람(조사역)이 내립니다.**
 
-> 현재 상태: 0주차(설계 완료, 구현 착수 전). 주차별 진척은 [docs/progress](docs/progress/README.md)에서 확인할 수 있습니다.
+> 현재 상태: 1주차(툴 서버 최소 구성). 주차별 진척은 [docs/progress](docs/progress/README.md)에서 확인할 수 있습니다.
 
 ## 업무 흐름
 
@@ -39,6 +39,7 @@ Kaggle [`kartik2112/fraud-detection`](https://www.kaggle.com/datasets/kartik2112
 | [00 프로젝트 헌장](docs/00_project_charter.md) | 목적, 범위, 성공 기준 |
 | [01 데이터셋 명세](docs/01_dataset_spec.md) | 필드, 전처리, 라벨 격리 |
 | [02 아키텍처](docs/02_architecture.md) | 계층 구성과 데이터 흐름 |
+| [03 MCP 툴 명세](docs/03_mcp_tool_spec.md) | 툴 입출력 계약, 결과 상태, 검증 시나리오 |
 | [05 로드맵](docs/05_roadmap.md) | 8주 계획 |
 | [07 인수인계](docs/07_project_handoff.md) | 최신 설계 기준과 다음 작업 |
 | [08 기술 스택 검토](docs/08_tech_stack_review.md) | 기술 선택 근거와 트레이드오프 |
