@@ -14,3 +14,7 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 3
+    ignore:
+      # MCP 2.x는 API 호환성 검토 후 별도 이슈로 이전합니다 (PR #6 참고)
+      - dependency-name: "mcp"
+        update-types: ["version-update:semver-major"]

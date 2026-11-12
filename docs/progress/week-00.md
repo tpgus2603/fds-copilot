@@ -48,3 +48,9 @@
 - 이슈 템플릿(작업, 버그, 설계 결정), AGENTS.md에 이슈 관리 규칙 추가, PR 템플릿에 `Closes #` 추가
 - PR #1, #2 병합 (사용자 지시), Mac 로컬 폴더를 저장소와 연결
 - Dependabot PR #3~#7 생성됨 (처리 필요)
+
+## 추가 기록: Dependabot PR 처리 (2026-11-12, Claude)
+- #3 `actions/checkout` v4 → v7: CI 통과 확인 후 병합
+- #4 `setup-uv` v6 → v7: #3 병합 후 충돌, Dependabot 재생성 명령이 전달되지 않아 같은 변경을 직접 적용하고 닫음
+- #6 `mcp` 1.30 → 2.3: `investigator-ci` 실패, `pyproject.toml` 제약(`<2`)과 불일치로 닫음. Dependabot에서 mcp 메이저 업데이트 제외
+- #5 Spring Boot 4.1.2, #7 Gradle wrapper 9.9.0: backend 빌드 검증 수단이 없어 W4로 보류 (#16과 함께 처리)
