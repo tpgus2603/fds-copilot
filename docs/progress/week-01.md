@@ -6,8 +6,9 @@
 ## 완료 항목
 | 항목 | 이슈 | 작업자 | 상태 | 검증 방법 |
 |---|---|---|---|---|
-| `docs/03_mcp_tool_spec.md`: `get_transaction_history` 명세 | #9 | Claude | 문서 | Codex 교차 리뷰 대기 |
-| `contracts/mcp/` 입출력 JSON Schema | #9 | Claude | 검증 | `tests/test_contracts.py` 17개 통과 (명세 예시 2개, 유효 4개, 거부 7개, 입력 6개) |
+| `docs/03_mcp_tool_spec.md`: `get_transaction_history` 명세 | #9 | Claude | 문서 | Codex 교차 리뷰 완료, 반영 |
+| `contracts/mcp/` 입출력 JSON Schema | #9 | Claude | 검증 | `tests/test_contracts.py` 58개 통과 |
+| PR #20 Codex 리뷰 반영 (필수 수정 7건, 제안 4건, 질문 1건) | #9 | Claude | 검증 | 수정 전 스키마가 통과시킨 위반 사례 23/34건을 회귀 테스트로 고정, 수정 후 모두 거부 |
 | investigator-ci가 명세 문서 변경에도 실행되도록 경로 추가 | #9 | Claude | 구현 | 이 PR의 CI |
 
 ## 결정 변경
@@ -17,9 +18,18 @@
 - 결과 상태를 `ok` / `insufficient` / `empty` / `error`로 나누고, 툴 실행 오류는 `isError: true`로 모델에 전달합니다.
 - 금액은 문자열(`"123.45"`), 비율은 숫자로 표현합니다.
 - 개발 의존성에 `jsonschema` 추가.
+- (리뷰 반영) 출력 스키마 1.0 → 1.1: 상태별 배타 분기(ok / insufficient / empty / error), 표본 수와 p95 연동, `error` 분기에서 성공 필드 금지, 오류 코드별 `retryable` 고정
+- (리뷰 반영) 허용 목록 fail closed: 설정 누락·빈 값·형식 오류 시 서버 시작 거부, `*`는 `FDS_ENV=dev|test`에서만 허용. 검사 순서는 입력 → 허용 목록 → 존재 → 조회
+- (리뷰 반영) 집계 규칙 고정: p95 nearest-rank, ROUND_HALF_UP, 비율 분모는 반올림 전 평균, 평균 0이면 비율 null
+- (리뷰 반영) SDK 입력 검증을 끄고 핸들러에서 계약 스키마로 검증해 `CallToolResult`를 직접 반환 (`mcp` 1.30 저수준 서버가 입력 검증 실패 시 텍스트 오류만 돌려주는 것을 코드로 확인)
+- (리뷰 반영) `evidence_id`는 조사 실행 안에서의 참조, 툴 결과 스냅샷을 조사 기록에 저장
+- (리뷰 반영) 시나리오 T13~T15 추가, 시나리오별 담당(#10 데이터, #12 호출·장애 주입) 명시
 
 ## 기타
 - Dependabot #5(Spring Boot 4.1.2), #7(Gradle wrapper 9.9.0)은 사용자가 병합함. backend 빌드 검증은 W4 `backend-ci` 추가 시 확인.
+
+## 협업 기록
+- Codex가 계약 테스트를 독립적으로 실행하고, 위반 응답을 직접 만들어 스키마의 허점 6종을 재현함. 구현 전에 계약 단계에서 결함을 잡은 사례.
 
 ## 다음 작업
 1. #10 합성 데이터 (Codex): 명세 4절 시나리오 T1~T12를 재현
