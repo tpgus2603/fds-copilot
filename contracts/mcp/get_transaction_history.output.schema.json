@@ -1,0 +1,220 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/tpgus2603/fds-copilot/contracts/mcp/get_transaction_history.output.schema.json",
+  "title": "get_transaction_history output",
+  "description": "status별로 허용 필드와 값 제약이 다릅니다. 분기는 status 값으로 배타적입니다.",
+  "type": "object",
+  "required": ["tool", "schema_version", "status"],
+  "properties": {
+    "tool": { "const": "get_transaction_history" },
+    "schema_version": { "const": "1.2" },
+    "status": { "enum": ["ok", "insufficient", "empty", "error"] }
+  },
+  "oneOf": [
+    { "$ref": "#/$defs/okResult" },
+    { "$ref": "#/$defs/insufficientResult" },
+    { "$ref": "#/$defs/emptyResult" },
+    { "$ref": "#/$defs/errorResult" }
+  ],
+  "$defs": {
+    "amount": { "type": "string", "pattern": "^[0-9]+\\.[0-9]{2}$", "description": "0 이상의 금액, 소수 둘째 자리 문자열" },
+    "timestamp": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}$" },
+    "transactionId": { "type": "string", "pattern": "^[A-Za-z0-9]{1,64}$" },
+
+    "successBase": {
+      "required": ["evidence_id", "basis", "target", "stats", "category_distribution", "target_category", "recent_transactions", "quality"],
+      "propertyNames": {
+        "enum": ["tool", "schema_version", "status", "evidence_id", "basis", "target", "stats", "category_distribution", "target_category", "recent_transactions", "quality"]
+      },
+      "properties": {
+        "evidence_id": { "type": "string", "pattern": "^EV-TH-[A-Za-z0-9]{1,64}-[0-9]{1,3}d$" },
+        "basis": { "$ref": "#/$defs/basis" },
+        "target": { "$ref": "#/$defs/target" },
+        "category_distribution": { "type": "array", "maxItems": 10, "items": { "$ref": "#/$defs/categoryShare" } },
+        "recent_transactions": { "type": "array", "maxItems": 10, "items": { "$ref": "#/$defs/recentTransaction" } },
+        "quality": { "$ref": "#/$defs/quality" }
+      }
+    },
+
+    "historyPresent": {
+      "description": "ok, insufficient 공통: 이력이 있으므로 분포와 최근 거래가 비어 있지 않고, 업종 이용 정보가 일관됩니다.",
+      "properties": {
+        "category_distribution": { "minItems": 1 },
+        "recent_transactions": { "minItems": 1 },
+        "target_category": { "$ref": "#/$defs/targetCategoryConsistent" }
+      }
+    },
+
+    "okResult": {
+      "allOf": [{ "$ref": "#/$defs/successBase" }, { "$ref": "#/$defs/historyPresent" }],
+      "properties": {
+        "status": { "const": "ok" },
+        "stats": {
+          "allOf": [
+            { "$ref": "#/$defs/statsFilled" },
+            {
+              "properties": { "txn_count": { "minimum": 5 } },
+              "if": { "properties": { "txn_count": { "minimum": 20 } } },
+              "then": { "properties": { "amount_p95": { "$ref": "#/$defs/amount" } } },
+              "else": { "properties": { "amount_p95": { "type": "null" } } }
+            }
+          ]
+        }
+      }
+    },
+
+    "insufficientResult": {
+      "allOf": [{ "$ref": "#/$defs/successBase" }, { "$ref": "#/$defs/historyPresent" }],
+      "properties": {
+        "status": { "const": "insufficient" },
+        "stats": {
+          "allOf": [
+            { "$ref": "#/$defs/statsFilled" },
+            { "properties": { "txn_count": { "minimum": 1, "maximum": 4 }, "amount_p95": { "type": "null" } } }
+          ]
+        }
+      }
+    },
+
+    "emptyResult": {
+      "allOf": [{ "$ref": "#/$defs/successBase" }],
+      "properties": {
+        "status": { "const": "empty" },
+        "stats": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["txn_count", "amount_mean", "amount_median", "amount_p95", "amount_max", "target_to_mean_ratio", "target_exceeds_max"],
+          "properties": {
+            "txn_count": { "const": 0 },
+            "amount_mean": { "type": "null" },
+            "amount_median": { "type": "null" },
+            "amount_p95": { "type": "null" },
+            "amount_max": { "type": "null" },
+            "target_to_mean_ratio": { "type": "null" },
+            "target_exceeds_max": { "type": "null" }
+          }
+        },
+        "category_distribution": { "maxItems": 0 },
+        "recent_transactions": { "maxItems": 0 },
+        "target_category": { "const": { "seen_before": false, "count": 0, "last_seen_at": null } }
+      }
+    },
+
+    "errorResult": {
+      "description": "오류 시에는 근거가 없으므로 공통 필드와 error만 허용합니다.",
+      "required": ["error"],
+      "propertyNames": { "enum": ["tool", "schema_version", "status", "error"] },
+      "properties": {
+        "status": { "const": "error" },
+        "error": { "$ref": "#/$defs/error" }
+      }
+    },
+
+    "statsFilled": {
+      "description": "이력이 있을 때: 평균·중앙값·최댓값·최댓값 초과 여부는 반드시 값이 있습니다. 금액은 0 이상이므로 반올림 전 평균이 0인 경우는 모든 금액이 0인 경우, 즉 amount_max가 0.00인 경우와 같습니다. 비율은 그때만 null입니다. 표시 평균이 0.00이어도 최댓값이 0보다 크면 비율은 숫자입니다.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["txn_count", "amount_mean", "amount_median", "amount_p95", "amount_max", "target_to_mean_ratio", "target_exceeds_max"],
+      "properties": {
+        "txn_count": { "type": "integer" },
+        "amount_mean": { "$ref": "#/$defs/amount" },
+        "amount_median": { "$ref": "#/$defs/amount" },
+        "amount_p95": { "oneOf": [{ "$ref": "#/$defs/amount" }, { "type": "null" }] },
+        "amount_max": { "$ref": "#/$defs/amount" },
+        "target_to_mean_ratio": { "type": ["number", "null"], "minimum": 0 },
+        "target_exceeds_max": { "type": "boolean" }
+      },
+      "if": { "properties": { "amount_max": { "const": "0.00" } } },
+      "then": { "properties": { "target_to_mean_ratio": { "type": "null" } } },
+      "else": { "properties": { "target_to_mean_ratio": { "type": "number" } } }
+    },
+
+    "basis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target_transaction_id", "card_token", "as_of", "window_start", "lookback_days"],
+      "properties": {
+        "target_transaction_id": { "$ref": "#/$defs/transactionId" },
+        "card_token": { "type": "string", "pattern": "^card_[A-Za-z0-9]+$" },
+        "as_of": { "$ref": "#/$defs/timestamp" },
+        "window_start": { "$ref": "#/$defs/timestamp" },
+        "lookback_days": { "type": "integer", "minimum": 7, "maximum": 365 }
+      }
+    },
+
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["trans_at", "amount", "category", "merchant_name"],
+      "properties": {
+        "trans_at": { "$ref": "#/$defs/timestamp" },
+        "amount": { "$ref": "#/$defs/amount" },
+        "category": { "type": "string" },
+        "merchant_name": { "type": "string" }
+      }
+    },
+
+    "categoryShare": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["category", "count", "share"],
+      "properties": {
+        "category": { "type": "string" },
+        "count": { "type": "integer", "minimum": 1 },
+        "share": { "type": "number", "minimum": 0, "maximum": 1, "description": "건수가 1 이상이어도 소수 넷째 자리 반올림으로 0이 될 수 있습니다." }
+      }
+    },
+
+    "targetCategoryConsistent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["seen_before", "count", "last_seen_at"],
+      "properties": {
+        "seen_before": { "type": "boolean" },
+        "count": { "type": "integer", "minimum": 0 },
+        "last_seen_at": { "oneOf": [{ "$ref": "#/$defs/timestamp" }, { "type": "null" }] }
+      },
+      "if": { "properties": { "seen_before": { "const": true } } },
+      "then": { "properties": { "count": { "minimum": 1 }, "last_seen_at": { "$ref": "#/$defs/timestamp" } } },
+      "else": { "properties": { "count": { "const": 0 }, "last_seen_at": { "type": "null" } } }
+    },
+
+    "recentTransaction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["transaction_id", "trans_at", "amount", "category", "merchant_name"],
+      "properties": {
+        "transaction_id": { "$ref": "#/$defs/transactionId" },
+        "trans_at": { "$ref": "#/$defs/timestamp" },
+        "amount": { "$ref": "#/$defs/amount" },
+        "category": { "type": "string" },
+        "merchant_name": { "type": "string" }
+      }
+    },
+
+    "quality": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["min_sample_required", "notes"],
+      "properties": {
+        "min_sample_required": { "const": 5 },
+        "notes": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+
+    "error": {
+      "description": "retryable은 오류 코드로 결정됩니다. 일시적 장애(DATA_SOURCE_UNAVAILABLE, TIMEOUT)만 true입니다.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "retryable"],
+      "properties": {
+        "code": { "enum": ["INVALID_ARGUMENT", "NOT_FOUND", "OUT_OF_SCOPE", "DATA_SOURCE_UNAVAILABLE", "TIMEOUT", "INTERNAL"] },
+        "message": { "type": "string" },
+        "retryable": { "type": "boolean" }
+      },
+      "if": { "properties": { "code": { "enum": ["DATA_SOURCE_UNAVAILABLE", "TIMEOUT"] } } },
+      "then": { "properties": { "retryable": { "const": true } } },
+      "else": { "properties": { "retryable": { "const": false } } }
+    }
+  }
+}
