@@ -13,6 +13,7 @@ import logging
 import sys
 
 import mcp.types as types
+from mcp.shared.exceptions import McpError
 from mcp.server.lowlevel import Server
 from mcp.server.stdio import stdio_server
 
@@ -66,9 +67,6 @@ def build_server(settings: Settings, repo: TransactionRepository) -> Server:
 
     @server.call_tool(validate_input=False)
     async def call_tool(name: str, arguments: dict | None) -> types.CallToolResult:
-        if name != contracts.TOOL_NAME:
-            # 존재하지 않는 툴: 툴 실행 오류가 아니라 호출 측 오류이므로 예외로 알립니다.
-            raise ValueError(f"Unknown tool: {name}")
         try:
             result = await get_transaction_history(
                 arguments, settings.allowlist, repo, settings.query_timeout_seconds
@@ -78,7 +76,25 @@ def build_server(settings: Settings, repo: TransactionRepository) -> Server:
             result = error_result(ErrorCode.INTERNAL)
         return to_call_result(result)
 
+    _reject_unknown_tools_as_protocol_errors(server)
     return server
+
+
+def _reject_unknown_tools_as_protocol_errors(server: Server) -> None:
+    """미등록 툴 호출을 JSON-RPC 오류(-32602)로 응답합니다 (명세 1절 '프로토콜 오류').
+
+    SDK의 call_tool 데코레이터는 핸들러 안의 모든 예외(McpError 포함)를 isError 툴 결과로
+    바꿉니다. McpError를 JSON-RPC 오류로 바꾸는 것은 그 바깥의 요청 처리 계층이므로,
+    등록된 핸들러를 감싸 데코레이터에 들어가기 전에 툴 이름을 검사합니다.
+    """
+    inner = server.request_handlers[types.CallToolRequest]
+
+    async def handler(req: types.CallToolRequest):
+        if req.params.name != contracts.TOOL_NAME:
+            raise McpError(types.ErrorData(code=types.INVALID_PARAMS, message=f"Unknown tool: {req.params.name}"))
+        return await inner(req)
+
+    server.request_handlers[types.CallToolRequest] = handler
 
 
 async def serve(settings: Settings, repo: TransactionRepository) -> None:

@@ -10,7 +10,8 @@
 | `contracts/mcp/` 입출력 JSON Schema | #9 | Claude | 검증 | `tests/test_contracts.py` 63개 통과 |
 | PR #20 Codex 리뷰 반영 (1차 필수 7건, 재리뷰 필수 2건) | #9 | Claude | 검증 | 수정 전 스키마가 통과시킨 위반 사례 23/34건을 회귀 테스트로 고정, 수정 후 모두 거부 |
 | investigator-ci가 명세 문서 변경에도 실행되도록 경로 추가 | #9 | Claude | 구현 | 이 PR의 CI |
-| `get_transaction_history` MCP 툴 서버 구현 | #11 | Claude | 검증 | pytest 109개 통과 (집계 규칙, 검사 순서, 상태, 장애 주입, 실제 stdio MCP 호출 5개) |
+| `get_transaction_history` MCP 툴 서버 구현 | #11 | Claude | 검증 | pytest 114개 통과 (집계 규칙, 검사 순서, 상태, 장애 주입, 실제 stdio MCP 호출 7개) |
+| PR #21 Codex 리뷰 반영 (필수 2건, 제안 1건) | #11 | Claude | 검증 | 수정을 되돌리면 새 회귀 테스트 5개가 모두 실패함을 확인 |
 | Kaggle 형식 CSV 적재기 (라벨·개인정보 제거, 카드 토큰화, `fraud_` 접두어 제거) | #11 | Claude | 검증 | `test_load_csv.py` |
 
 ## 결정 변경
@@ -32,6 +33,9 @@
 - `tools/list`에 `outputSchema`도 노출. `mcp` 클라이언트가 오류가 아닌 결과를 출력 스키마로 다시 검증함(서버 자체 검증과 이중 확인)
 - 저장소는 기간 경계를 포함해 넓게 읽고, 다른 카드·대상 자체·같은 초·이후 거래 제외는 순수 함수(`split_window`)가 다시 강제. 저장소 구현이 바뀌어도 시점 통제가 유지됨
 - SQLite는 `mode=ro`로 열어 툴 서버의 쓰기를 원천 차단
+- (리뷰 반영) `lookback_days: 90.0`은 JSON Schema상 integer로 통과하므로 검증 후 `int`로 정규화. 정규화 전에는 근거 ID가 `-90.0d`가 되어 출력 검증에서 `INTERNAL`로 바뀌었음
+- (리뷰 반영) 미등록 툴은 JSON-RPC 오류(-32602)로 응답. SDK `call_tool` 데코레이터가 `McpError`까지 툴 결과로 바꾸므로, 등록된 요청 핸들러를 감싸 데코레이터 진입 전에 이름을 검사
+- (리뷰 반영) 순수 함수 `split_window`가 조회 하한까지 강제 `[window_start, as_of)`. 저장소가 하한을 무시해도 집계에 섞이지 않음
 - 거래 도메인 모델에 라벨·카드번호·개인정보 필드를 두지 않아 타입 수준에서 유입을 막음
 - Sparkov 가맹점명에 일괄로 붙은 `fraud_` 접두어는 적재 시 제거(라벨로 오인될 수 있는 문자열)
 

@@ -28,17 +28,21 @@ def window_start(as_of: datetime, lookback_days: int) -> datetime:
     return as_of - timedelta(days=lookback_days)
 
 
-def split_window(target: Transaction, candidates: list[Transaction]) -> tuple[list[Transaction], int]:
-    """비교 대상과 같은 초에 있어 제외된 건수를 나눕니다.
+def split_window(
+    target: Transaction, candidates: list[Transaction], start: datetime
+) -> tuple[list[Transaction], int]:
+    """비교 대상 [start, as_of)와, 대상과 같은 초에 있어 제외된 건수를 나눕니다.
 
-    조회 조건은 trans_at < as_of 이며 같은 카드만 포함합니다. 저장소가 넓게 돌려주더라도
-    여기서 다시 강제합니다(다른 카드, 대상 자체, 이후 거래 제외).
+    같은 카드만 포함합니다. 저장소가 범위를 벗어난 행을 돌려주더라도 여기서 다시 강제합니다
+    (다른 카드, 대상 자체, 하한 이전, 같은 초, 이후 거래 제외).
     """
     as_of = target.trans_at
     kept: list[Transaction] = []
     same_second = 0
     for t in candidates:
         if t.card_token != target.card_token or t.transaction_id == target.transaction_id:
+            continue
+        if t.trans_at < start:
             continue
         if t.trans_at < as_of:
             kept.append(t)

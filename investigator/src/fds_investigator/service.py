@@ -51,7 +51,9 @@ async def get_transaction_history(
         return error_result(ErrorCode.INVALID_ARGUMENT, f"{where}")
 
     target_id: str = args["target_transaction_id"]
-    lookback_days: int = args.get("lookback_days", 90)
+    # JSON Schema의 integer는 90.0처럼 소수부가 0인 수도 허용합니다. 검증을 통과한 값을 int로 정규화해
+    # 근거 ID(EV-TH-...-90d)와 기간 계산이 표현 방식에 따라 달라지지 않게 합니다.
+    lookback_days = int(args.get("lookback_days", 90))
 
     # 2. 허용 목록: 존재 확인보다 먼저 검사해 존재 여부가 노출되지 않게 합니다.
     if not allowlist.permits(target_id):
@@ -79,5 +81,5 @@ async def get_transaction_history(
         log.exception("unexpected error while querying history")
         return error_result(ErrorCode.INTERNAL)
 
-    history, same_second = split_window(target, candidates)
+    history, same_second = split_window(target, candidates, window_start(target.trans_at, lookback_days))
     return build_result(target, history, lookback_days, same_second, contracts.schema_version())

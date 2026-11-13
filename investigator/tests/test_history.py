@@ -4,7 +4,7 @@ from datetime import timedelta
 from decimal import Decimal
 
 from conftest import BASE, TARGET, txn
-from fds_investigator.history import build_result, median, p95_nearest_rank, split_window
+from fds_investigator.history import build_result, median, p95_nearest_rank, split_window, window_start
 
 
 def result(history, same_second=0, target=TARGET, days=90):
@@ -105,7 +105,7 @@ def test_split_window_excludes_other_card_target_same_second_and_future():
         txn("same", "1.00", at=BASE),                              # T7
         TARGET,
     ]
-    kept, same_second = split_window(TARGET, rows)
+    kept, same_second = split_window(TARGET, rows, window_start(BASE, 90))
     assert [t.transaction_id for t in kept] == ["ok1"]
     assert same_second == 1
     notes = result(kept, same_second=same_second)["quality"]["notes"]
@@ -117,3 +117,15 @@ def test_evidence_and_basis():
     assert r["evidence_id"] == "EV-TH-T0-30d"
     assert r["basis"]["as_of"] == "2020-06-21T02:13:44"
     assert r["basis"]["window_start"] == "2020-05-22T02:13:44"
+
+
+def test_split_window_applies_lower_bound_inclusive():
+    """저장소가 하한 이전 행을 돌려줘도 순수 함수가 [start, as_of)를 강제합니다 (PR #21 리뷰 제안)."""
+    start = window_start(BASE, 90)
+    rows = [
+        txn("at_start", "1.00", at=start),                              # 정확히 하한: 포함
+        txn("one_sec_before", "1.00", at=start - timedelta(seconds=1)),  # 1초 전: 제외
+        txn("inside", "1.00", days_before=1),
+    ]
+    kept, _ = split_window(TARGET, rows, start)
+    assert sorted(t.transaction_id for t in kept) == ["at_start", "inside"]

@@ -12,6 +12,8 @@ from pathlib import Path
 
 import pytest
 from mcp import ClientSession, StdioServerParameters
+from mcp.shared.exceptions import McpError
+from mcp.types import INVALID_PARAMS
 from mcp.client.stdio import stdio_client
 
 from conftest import write_kaggle_csv
@@ -76,6 +78,29 @@ async def test_out_of_scope(db):
         res = await s.call_tool("get_transaction_history", {"target_transaction_id": "target1"})
         assert res.isError is True
         assert res.structuredContent["error"]["code"] == "OUT_OF_SCOPE"
+
+
+async def test_integral_float_lookback_same_as_integer(db):
+    """JSON의 90.0은 스키마상 integer입니다. 실제 MCP 호출에서도 90과 같은 결과여야 합니다 (PR #21 리뷰)."""
+    async with stdio_client(params(db, "target1")) as (r, w), ClientSession(r, w) as s:
+        await s.initialize()
+        a = await s.call_tool("get_transaction_history", {"target_transaction_id": "target1", "lookback_days": 90})
+        b = await s.call_tool("get_transaction_history", {"target_transaction_id": "target1", "lookback_days": 90.0})
+        assert b.isError is False
+        assert a.structuredContent == b.structuredContent
+        assert b.structuredContent["evidence_id"] == "EV-TH-target1-90d"
+
+
+async def test_unknown_tool_is_jsonrpc_error(db):
+    """미등록 툴은 툴 결과가 아니라 JSON-RPC 오류로 응답합니다 (명세 1절, PR #21 리뷰)."""
+    async with stdio_client(params(db, "target1")) as (r, w), ClientSession(r, w) as s:
+        await s.initialize()
+        with pytest.raises(McpError) as exc:
+            await s.call_tool("no_such_tool", {})
+        assert exc.value.error.code == INVALID_PARAMS
+        # 오류 이후에도 세션은 정상 동작합니다
+        ok = await s.call_tool("get_transaction_history", {"target_transaction_id": "target1"})
+        assert ok.isError is False
 
 
 def test_startup_refused_without_allowlist(db):

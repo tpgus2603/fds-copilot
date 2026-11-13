@@ -94,3 +94,27 @@ async def test_scope_control_end_to_end():
     ids = {r["transaction_id"] for r in out["recent_transactions"]}
     assert ids == {f"H{i}" for i in range(5)}
     assert out["stats"]["amount_max"] == "10.00"
+
+
+class LeakyRepo(FakeRepo):
+    """조회 하한을 무시하는 잘못된 저장소 (MySQL 이관 시 SQL 누락 상황)."""
+
+    def card_history(self, card_token, start, end_inclusive):
+        self.calls.append("history")
+        return [r for r in self.rows.values() if r.card_token == card_token and r.trans_at <= end_inclusive]
+
+
+async def test_lower_bound_enforced_even_if_repository_leaks():
+    repo = LeakyRepo([TARGET, txn("old", "999.00", days_before=200), txn("new", "10.00", days_before=10)])
+    out = await call({"target_transaction_id": "T0"}, repo)
+    assert out["stats"]["txn_count"] == 1
+    assert out["stats"]["amount_max"] == "10.00"
+
+
+async def test_integral_float_lookback_is_normalized():
+    repo = FakeRepo([TARGET, *history_rows(5)])
+    a = await call({"target_transaction_id": "T0", "lookback_days": 90}, repo)
+    b = await call({"target_transaction_id": "T0", "lookback_days": 90.0}, repo)
+    assert a == b
+    assert b["evidence_id"] == "EV-TH-T0-90d"
+    assert b["basis"]["lookback_days"] == 90 and isinstance(b["basis"]["lookback_days"], int)
