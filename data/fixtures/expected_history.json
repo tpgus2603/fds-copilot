@@ -1,0 +1,183 @@
+{
+  "T1_T5_T6_T7_T12": {
+    "arguments": {
+      "target_transaction_id": "high"
+    },
+    "expected": {
+      "status": "ok",
+      "evidence_id": "EV-TH-high-90d",
+      "stats": {
+        "txn_count": 5,
+        "amount_mean": "30.00",
+        "amount_median": "30.00",
+        "amount_p95": null,
+        "amount_max": "50.00",
+        "target_to_mean_ratio": 10,
+        "target_exceeds_max": true
+      },
+      "recent_transaction_ids": [
+        "highh00001",
+        "highh00002",
+        "highh00003",
+        "highh00004",
+        "highlower"
+      ],
+      "same_second_excluded": 1,
+      "target_category_seen": false
+    }
+  },
+  "window7": {
+    "arguments": {
+      "target_transaction_id": "high",
+      "lookback_days": 7
+    },
+    "expected": {
+      "status": "insufficient",
+      "evidence_id": "EV-TH-high-7d",
+      "stats": {
+        "txn_count": 4,
+        "amount_mean": "25.00"
+      }
+    }
+  },
+  "T2": {
+    "arguments": {
+      "target_transaction_id": "usual"
+    },
+    "expected": {
+      "status": "ok",
+      "evidence_id": "EV-TH-usual-90d",
+      "stats": {
+        "txn_count": 5,
+        "amount_mean": "25.00",
+        "target_to_mean_ratio": 1,
+        "target_exceeds_max": false
+      },
+      "target_category_seen": true
+    }
+  },
+  "T3": {
+    "arguments": {
+      "target_transaction_id": "sparse"
+    },
+    "expected": {
+      "status": "insufficient",
+      "evidence_id": "EV-TH-sparse-90d",
+      "stats": {
+        "txn_count": 3,
+        "amount_mean": "2.00",
+        "amount_p95": null
+      }
+    }
+  },
+  "T4": {
+    "arguments": {
+      "target_transaction_id": "new"
+    },
+    "expected": {
+      "status": "empty",
+      "evidence_id": "EV-TH-new-90d",
+      "stats": {
+        "txn_count": 0,
+        "amount_mean": null
+      }
+    }
+  },
+  "T13_4": {
+    "arguments": {
+      "target_transaction_id": "edge4"
+    },
+    "expected": {
+      "status": "insufficient",
+      "evidence_id": "EV-TH-edge4-90d",
+      "stats": {
+        "txn_count": 4,
+        "amount_mean": "2.50",
+        "amount_p95": null
+      }
+    }
+  },
+  "T13_5": {
+    "arguments": {
+      "target_transaction_id": "edge5"
+    },
+    "expected": {
+      "status": "ok",
+      "evidence_id": "EV-TH-edge5-90d",
+      "stats": {
+        "txn_count": 5,
+        "amount_mean": "3.00",
+        "amount_p95": null
+      }
+    }
+  },
+  "T13_19": {
+    "arguments": {
+      "target_transaction_id": "edge19"
+    },
+    "expected": {
+      "status": "ok",
+      "evidence_id": "EV-TH-edge19-90d",
+      "stats": {
+        "txn_count": 19,
+        "amount_mean": "10.00",
+        "amount_p95": null
+      }
+    }
+  },
+  "T13_20": {
+    "arguments": {
+      "target_transaction_id": "edge20"
+    },
+    "expected": {
+      "status": "ok",
+      "evidence_id": "EV-TH-edge20-90d",
+      "stats": {
+        "txn_count": 20,
+        "amount_mean": "10.50",
+        "amount_p95": "19.00"
+      }
+    }
+  },
+  "T14_zero": {
+    "arguments": {
+      "target_transaction_id": "zero"
+    },
+    "expected": {
+      "status": "ok",
+      "evidence_id": "EV-TH-zero-90d",
+      "stats": {
+        "txn_count": 5,
+        "amount_mean": "0.00",
+        "target_to_mean_ratio": null
+      }
+    }
+  },
+  "T14_tiny": {
+    "arguments": {
+      "target_transaction_id": "tiny"
+    },
+    "expected": {
+      "status": "ok",
+      "evidence_id": "EV-TH-tiny-90d",
+      "stats": {
+        "txn_count": 5,
+        "amount_mean": "0.00",
+        "target_to_mean_ratio": 500
+      }
+    }
+  },
+  "geo_history": {
+    "arguments": {
+      "target_transaction_id": "geo"
+    },
+    "expected": {
+      "status": "insufficient",
+      "evidence_id": "EV-TH-geo-90d",
+      "stats": {
+        "txn_count": 1,
+        "amount_mean": "20.00"
+      }
+    }
+  }
+}
