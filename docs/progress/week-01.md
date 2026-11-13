@@ -8,8 +8,10 @@
 |---|---|---|---|---|
 | `docs/03_mcp_tool_spec.md`: `get_transaction_history` 명세 | #9 | Claude | 문서 | Codex 교차 리뷰 완료, 반영 |
 | `contracts/mcp/` 입출력 JSON Schema | #9 | Claude | 검증 | `tests/test_contracts.py` 63개 통과 |
-| PR #20 Codex 리뷰 반영 (필수 수정 7건, 제안 4건, 질문 1건) | #9 | Claude | 검증 | 수정 전 스키마가 통과시킨 위반 사례 23/34건을 회귀 테스트로 고정, 수정 후 모두 거부 |
+| PR #20 Codex 리뷰 반영 (1차 필수 7건, 재리뷰 필수 2건) | #9 | Claude | 검증 | 수정 전 스키마가 통과시킨 위반 사례 23/34건을 회귀 테스트로 고정, 수정 후 모두 거부 |
 | investigator-ci가 명세 문서 변경에도 실행되도록 경로 추가 | #9 | Claude | 구현 | 이 PR의 CI |
+| `get_transaction_history` MCP 툴 서버 구현 | #11 | Claude | 검증 | pytest 109개 통과 (집계 규칙, 검사 순서, 상태, 장애 주입, 실제 stdio MCP 호출 5개) |
+| Kaggle 형식 CSV 적재기 (라벨·개인정보 제거, 카드 토큰화, `fraud_` 접두어 제거) | #11 | Claude | 검증 | `test_load_csv.py` |
 
 ## 결정 변경
 - 기준 시점(`as_of`)은 입력으로 받지 않고 대상 거래에서 서버가 도출합니다.
@@ -25,6 +27,14 @@
 - (리뷰 반영) `evidence_id`는 조사 실행 안에서의 참조, 툴 결과 스냅샷을 조사 기록에 저장
 - (리뷰 반영) 시나리오 T13~T15 추가, 시나리오별 담당(#10 데이터, #12 호출·장애 주입) 명시
 
+## 구현 결정 (#11)
+- SDK `validate_input=True`(기본값)에서는 T10 응답의 `structuredContent`가 `None`이 됨을 변이 테스트로 확인. `validate_input=False`와 핸들러 측 검증으로 해결
+- `tools/list`에 `outputSchema`도 노출. `mcp` 클라이언트가 오류가 아닌 결과를 출력 스키마로 다시 검증함(서버 자체 검증과 이중 확인)
+- 저장소는 기간 경계를 포함해 넓게 읽고, 다른 카드·대상 자체·같은 초·이후 거래 제외는 순수 함수(`split_window`)가 다시 강제. 저장소 구현이 바뀌어도 시점 통제가 유지됨
+- SQLite는 `mode=ro`로 열어 툴 서버의 쓰기를 원천 차단
+- 거래 도메인 모델에 라벨·카드번호·개인정보 필드를 두지 않아 타입 수준에서 유입을 막음
+- Sparkov 가맹점명에 일괄로 붙은 `fraud_` 접두어는 적재 시 제거(라벨로 오인될 수 있는 문자열)
+
 ## 기타
 - Dependabot #5(Spring Boot 4.1.2), #7(Gradle wrapper 9.9.0)은 사용자가 병합함. backend 빌드 검증은 W4 `backend-ci` 추가 시 확인.
 
@@ -36,5 +46,5 @@
 
 ## 다음 작업
 1. #10 합성 데이터 (Codex): 명세 4절 시나리오 T1~T12를 재현
-2. #11 툴 구현 (Claude)
+2. ~~#11 툴 구현 (Claude)~~ PR 리뷰 대기
 3. #12 통합 테스트 (Codex), #13 Claude Code 연결 (사람)
