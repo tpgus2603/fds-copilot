@@ -8,7 +8,7 @@
 |---|---|---|---|---|
 | `docs/03_mcp_tool_spec.md`: `get_transaction_history` 명세 | #9 | Claude | 문서 | Codex 교차 리뷰 완료, 반영 |
 | `contracts/mcp/` 입출력 JSON Schema | #9 | Claude | 검증 | `tests/test_contracts.py` 63개 통과 |
-| PR #20 Codex 리뷰 반영 (필수 수정 7건, 제안 4건, 질문 1건) | #9 | Claude | 검증 | 수정 전 스키마가 통과시킨 위반 사례 23/34건을 회귀 테스트로 고정, 수정 후 모두 거부 |
+| PR #20 Codex 리뷰 반영 (1차 필수 7건, 재리뷰 필수 2건) | #9 | Claude | 검증 | 수정 전 스키마가 통과시킨 위반 사례 23/34건을 회귀 테스트로 고정, 수정 후 모두 거부 |
 | investigator-ci가 명세 문서 변경에도 실행되도록 경로 추가 | #9 | Claude | 구현 | 이 PR의 CI |
 | 합성 거래 87건, 평가용 라벨 분리, 독립 기대값 및 T14 대용량 생성기 | #10 | Codex | 구현 완료·검증 완료 | PR #21 커밋 2cbab35의 적재기로 적재 후 실제 stdio MCP 호출로 기본 12개·확장 13개 결과와 T8~T10 오류를 대조 |
 
@@ -25,6 +25,17 @@
 - (리뷰 반영) SDK 입력 검증을 끄고 핸들러에서 계약 스키마로 검증해 `CallToolResult`를 직접 반환 (`mcp` 1.30 저수준 서버가 입력 검증 실패 시 텍스트 오류만 돌려주는 것을 코드로 확인)
 - (리뷰 반영) `evidence_id`는 조사 실행 안에서의 참조, 툴 결과 스냅샷을 조사 기록에 저장
 - (리뷰 반영) 시나리오 T13~T15 추가, 시나리오별 담당(#10 데이터, #12 호출·장애 주입) 명시
+
+## 구현 결정 (#11)
+- SDK `validate_input=True`(기본값)에서는 T10 응답의 `structuredContent`가 `None`이 됨을 변이 테스트로 확인. `validate_input=False`와 핸들러 측 검증으로 해결
+- `tools/list`에 `outputSchema`도 노출. `mcp` 클라이언트가 오류가 아닌 결과를 출력 스키마로 다시 검증함(서버 자체 검증과 이중 확인)
+- 저장소는 기간 경계를 포함해 넓게 읽고, 다른 카드·대상 자체·같은 초·이후 거래 제외는 순수 함수(`split_window`)가 다시 강제. 저장소 구현이 바뀌어도 시점 통제가 유지됨
+- SQLite는 `mode=ro`로 열어 툴 서버의 쓰기를 원천 차단
+- (리뷰 반영) `lookback_days: 90.0`은 JSON Schema상 integer로 통과하므로 검증 후 `int`로 정규화. 정규화 전에는 근거 ID가 `-90.0d`가 되어 출력 검증에서 `INTERNAL`로 바뀌었음
+- (리뷰 반영) 미등록 툴은 JSON-RPC 오류(-32602)로 응답. SDK `call_tool` 데코레이터가 `McpError`까지 툴 결과로 바꾸므로, 등록된 요청 핸들러를 감싸 데코레이터 진입 전에 이름을 검사
+- (리뷰 반영) 순수 함수 `split_window`가 조회 하한까지 강제 `[window_start, as_of)`. 저장소가 하한을 무시해도 집계에 섞이지 않음
+- 거래 도메인 모델에 라벨·카드번호·개인정보 필드를 두지 않아 타입 수준에서 유입을 막음
+- Sparkov 가맹점명에 일괄로 붙은 `fraud_` 접두어는 적재 시 제거(라벨로 오인될 수 있는 문자열)
 
 ## 기타
 - Dependabot #5(Spring Boot 4.1.2), #7(Gradle wrapper 9.9.0)은 사용자가 병합함. backend 빌드 검증은 W4 `backend-ci` 추가 시 확인.
