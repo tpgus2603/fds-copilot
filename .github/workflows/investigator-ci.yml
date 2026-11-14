@@ -5,6 +5,7 @@ on:
     paths:
       - "investigator/**"
       - "contracts/**"
+      - "data/fixtures/**"
       - "docs/03_mcp_tool_spec.md"
       - "docs/04_agent_workflow.md"
       - "data/fixtures/**"
@@ -14,6 +15,7 @@ on:
     paths:
       - "investigator/**"
       - "contracts/**"
+      - "data/fixtures/**"
       - "docs/03_mcp_tool_spec.md"
       - "docs/04_agent_workflow.md"
       - "data/fixtures/**"
