@@ -4,8 +4,16 @@ import json
 from pathlib import Path
 
 import pytest
+from agent_fakes import (
+    FakeModel,
+    api_error,
+    high_report,
+    history,
+    respond,
+    submit,
+    text,
+)
 
-from agent_fakes import (FakeModel, api_error, high_report, history, respond, submit, text)
 from fds_investigator.agent.loop import Limits, investigate
 from fds_investigator.agent.tool_session import McpToolSession
 from fds_investigator.load_csv import load
@@ -215,3 +223,109 @@ async def test_trace_is_serializable_and_has_no_secrets(db, monkeypatch):
     blob = json.dumps(r.to_dict(), ensure_ascii=False)
     assert "TEST-ONLY-NOT-A-REAL-KEY-7f3e" not in blob and "SYNTHETIC-" not in blob and "is_fraud" not in blob
     assert r.run_id.startswith("run_") and len(r.run_id) == 30
+
+
+# ---------- PR #27 리뷰 회귀 ----------
+
+import asyncio
+from contextlib import asynccontextmanager
+
+from mcp.shared.exceptions import McpError
+from mcp.types import ErrorData
+
+from fds_investigator.agent.tool_session import ToolCallResult
+
+
+class FailingAfter:
+    """실제 툴 세션을 감싸, n번째 호출부터 MCP 프로토콜 오류를 던집니다."""
+
+    def __init__(self, inner, fail_from_call: int):
+        self.inner, self.n, self.fail_from = inner, 0, fail_from_call
+        self.tools = inner.tools
+
+    async def call(self, name, args) -> ToolCallResult:
+        self.n += 1
+        if self.n >= self.fail_from:
+            raise McpError(ErrorData(code=-32603, message="transport broken"))
+        return await self.inner.call(name, args)
+
+
+def failing_session(db, fail_from_call):
+    @asynccontextmanager
+    async def opener(target):
+        async with McpToolSession(target, db) as s:
+            yield FailingAfter(s, fail_from_call)
+    return opener
+
+
+@pytest.mark.parametrize("fail_from,stage", [(1, "baseline_tool_call"), (2, "tool_call")])
+async def test_mcp_protocol_error_becomes_tool_server_failure_with_trace(db, fail_from, stage):
+    model = FakeModel(respond(history("high", 30)), respond(submit(high_report())))
+    r = await investigate("high", model, failing_session(db, fail_from), MODEL, Limits())
+    assert (r.outcome.status, r.outcome.reason) == ("incomplete", "TOOL_SERVER_FAILURE")
+    assert r.outcome.detail["stage"] == stage
+    assert r.steps[-1]["status"] == "session_failure"          # 부분 기록이 남음
+    json.dumps(r.to_dict(), ensure_ascii=False)                 # 직렬화 가능
+
+
+async def test_slow_tool_server_start_is_time_limit():
+    cleaned = []
+
+    @asynccontextmanager
+    async def slow(target):
+        try:
+            await asyncio.sleep(5)
+            yield None
+        finally:
+            cleaned.append(True)
+
+    r = await investigate("high", FakeModel(), slow, MODEL, Limits(total_seconds=0.5))
+    assert r.outcome.reason == "TIME_LIMIT" and r.outcome.detail == "tool_server_start"
+    assert cleaned == [True]                                    # 취소되어도 정리됨
+
+
+async def test_tool_server_refusing_start_is_failure_and_cleaned(db):
+    # 허용 목록 형식 오류 → 툴 서버가 시작을 거부(종료 코드 1) → initialize 실패 → 세션이 스스로 정리
+    r = await run(db, FakeModel(), target="bad;id")
+    assert r.outcome.reason == "TOOL_SERVER_FAILURE"
+
+
+async def test_duplicates_within_response_and_default_args_are_normalized(db):
+    # 같은 30일 조회 두 번 + lookback 생략(=기본 90일, 기본 증거와 같음) + 90.0
+    a, b = history("high", 30), history("high", 30)
+    c = history("high")
+    d = history("high", 90)
+    d["input"]["lookback_days"] = 90.0
+    model = FakeModel(respond(a, b, c, d), respond(submit(high_report())))
+    r = await run(db, model)
+    assert r.outcome.status == "reported"
+    blocks = model.requests[1].messages[-1]["content"]
+    assert [x["tool_use_id"] for x in blocks] == [a["id"], b["id"], c["id"], d["id"]]   # 응답 순서 그대로
+    assert [x["is_error"] for x in blocks] == [False, True, True, True]
+    assert [json.loads(x["content"]).get("error", {}).get("code") for x in blocks] == [
+        None, "DUPLICATE_CALL", "DUPLICATE_CALL", "DUPLICATE_CALL"]
+    assert r.usage.tool_calls == 1 and r.usage.rejected_calls == 3   # 실제 실행은 1회
+
+
+async def test_limit_counts_unique_requests_only(db):
+    model = FakeModel(respond(history("high", 30), history("high", 30)), respond(submit(high_report())))
+    r = await run(db, model, max_tool_calls=1)
+    codes = [json.loads(x["content"]).get("error", {}).get("code") for x in model.requests[1].messages[-1]["content"]]
+    assert codes == [None, "DUPLICATE_CALL"] and r.usage.tool_calls == 1
+
+
+async def test_unexpected_client_exception_is_model_api_error(db):
+    r = await run(db, FakeModel(RuntimeError("boom")))
+    assert r.outcome.reason == "MODEL_API_ERROR" and r.outcome.detail["error"] == "RuntimeError"
+
+
+async def test_any_other_exception_is_recorded_not_raised():
+    @asynccontextmanager
+    async def broken(target):
+        class S:
+            tools = [{"description": "name 필드 없음"}]
+            async def call(self, *a): return ToolCallResult({"status": "ok", "evidence_id": "EV-TH-x-90d"}, False)
+        yield S()
+
+    r = await investigate("x", FakeModel(), broken, MODEL, Limits())
+    assert (r.outcome.status, r.outcome.reason) == ("incomplete", "AGENT_INTERNAL_ERROR")

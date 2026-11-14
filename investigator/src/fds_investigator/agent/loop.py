@@ -8,14 +8,20 @@ import asyncio
 import json
 import os
 import time
-from collections.abc import AsyncIterator, Callable
+from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
-from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
 from typing import Any
 
 from .model_client import ModelCallError, ModelClient, ModelRequest, ModelResponse
-from .prompts import NUDGE, SUBMIT_REPORT, SYSTEM_PROMPT, initial_user_message, submit_report_tool
+from .prompts import (
+    NUDGE,
+    SUBMIT_REPORT,
+    SYSTEM_PROMPT,
+    initial_user_message,
+    submit_report_tool,
+)
 from .render import render_statement
 from .tool_session import ToolCallResult, ToolSession
 from .verify import verify_report
@@ -78,8 +84,18 @@ def new_run_id() -> str:
     return "run_" + "".join(alphabet[(value >> (5 * i)) & 31] for i in reversed(range(26)))
 
 
-def _canonical(name: str, args: dict[str, Any]) -> str:
-    return name + json.dumps(args, sort_keys=True, ensure_ascii=False)
+def _canonical(name: str, args: Any) -> str:
+    """중복 조회 판정용 키. 기본값을 채우고 정수 표현을 통일해, 의미가 같은 호출을 같은 키로 만듭니다.
+
+    예: {"target_transaction_id": "high"} 와 {..., "lookback_days": 90} 와 {..., "lookback_days": 90.0}은 같은 조회입니다.
+    """
+    norm = dict(args) if isinstance(args, dict) else {"__non_object__": repr(args)}
+    if name == HISTORY_TOOL:
+        days = norm.get("lookback_days", BASELINE_LOOKBACK)
+        if isinstance(days, float) and days.is_integer():
+            days = int(days)
+        norm["lookback_days"] = days
+    return name + json.dumps(norm, sort_keys=True, ensure_ascii=False, default=str)
 
 
 def _tool_result_block(tool_use_id: str, payload: dict[str, Any], is_error: bool) -> dict[str, Any]:
@@ -118,7 +134,7 @@ async def investigate(
         return min(cap, left) if cap is not None else left
 
     def record(kind: str, started: float, **data: Any) -> None:
-        steps.append({"type": kind, "at": datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
+        steps.append({"type": kind, "at": datetime.now(UTC).isoformat(timespec="milliseconds"),
                       "duration_ms": round((loop.time() - started) * 1000), **data})
 
     async def run_tool(session: ToolSession, name: str, args: dict[str, Any], kind: str) -> ToolCallResult:
@@ -128,9 +144,16 @@ async def investigate(
             usage.tool_attempts += 1
             try:
                 res = await asyncio.wait_for(session.call(name, args), remaining(limits.tool_timeout))
+            except _Stop:
+                raise
             except TimeoutError:
                 res = ToolCallResult({"status": "error", "error": {"code": "TIMEOUT", "message": "툴 호출 시간 초과",
                                                                    "retryable": True}}, True)
+            except Exception as exc:
+                # MCP 프로토콜 오류(McpError)나 전송 오류: 툴 실행 오류가 아니라 세션 자체의 실패입니다.
+                record(kind, started, tool=name, arguments=args, attempt=attempt, status="session_failure",
+                       error={"type": type(exc).__name__})
+                raise _Stop("TOOL_SERVER_FAILURE", {"stage": kind, "error": type(exc).__name__}) from exc
             record(kind, started, tool=name, arguments=args, attempt=attempt,
                    status=res.payload.get("status"), evidence_id=res.payload.get("evidence_id"),
                    error=res.payload.get("error"))
@@ -175,6 +198,8 @@ async def investigate(
                 if loop.time() >= deadline:
                     raise _Stop("TIME_LIMIT", "count_tokens") from exc
                 raise _Stop("MODEL_API_ERROR", {"stage": "count_tokens", "error": str(exc)}) from exc
+            except Exception as exc:
+                raise _Stop("MODEL_API_ERROR", {"stage": "count_tokens", "error": type(exc).__name__}) from exc
             projected = usage.input_tokens + next_tokens * TOKEN_MARGIN
             record("token_check", started, spent=usage.input_tokens, next=next_tokens, projected=round(projected))
             if projected > limits.input_token_budget:
@@ -194,6 +219,8 @@ async def investigate(
                 if loop.time() >= deadline:
                     raise _Stop("TIME_LIMIT", "create") from exc
                 raise _Stop("MODEL_API_ERROR", {"stage": "create", "error": str(exc), "attempts": exc.attempts}) from exc
+            except Exception as exc:
+                raise _Stop("MODEL_API_ERROR", {"stage": "create", "error": type(exc).__name__}) from exc
             usage.model_calls += 1
             usage.model_attempts += response.attempts
             usage.input_tokens += response.input_tokens
@@ -252,6 +279,7 @@ async def investigate(
 
             # 6. 조회 툴 처리 (2.5): 미등록·중복은 실행하지 않음, 남은 한도를 넘는 배치는 전체 거부 (2.4)
             candidates = []
+            batch_keys: set[str] = set()
             for b in lookups:
                 key = _canonical(b["name"], b["input"])
                 if b["name"] not in lookup_names:
@@ -261,7 +289,12 @@ async def investigate(
                     usage.rejected_calls += 1
                     results[b["id"]] = _tool_result_block(b["id"], _rejection(
                         "DUPLICATE_CALL", f"같은 조회를 이미 실행했습니다. evidence_id={executed[key]}"), True)
+                elif key in batch_keys:
+                    usage.rejected_calls += 1
+                    results[b["id"]] = _tool_result_block(b["id"], _rejection(
+                        "DUPLICATE_CALL", "같은 응답에서 같은 조회를 두 번 요청했습니다. 첫 번째 요청만 처리합니다."), True)
                 else:
+                    batch_keys.add(key)
                     candidates.append(b)
             left = limits.max_tool_calls - usage.tool_calls
             if len(candidates) > left:
@@ -288,7 +321,10 @@ async def investigate(
             session = await asyncio.wait_for(session_cm.__aenter__(), remaining())
         except _Stop:
             raise
-        except Exception as exc:  # noqa: BLE001
+        except TimeoutError as exc:
+            # 기동이 전체 마감 시각을 넘긴 경우는 서버 결함이 아니라 시간 초과입니다.
+            raise _Stop("TIME_LIMIT", "tool_server_start") from exc
+        except Exception as exc:
             raise _Stop("TOOL_SERVER_FAILURE", type(exc).__name__) from exc
         record("tool_server_started", started, tools=[t["name"] for t in session.tools])
         try:
@@ -297,4 +333,7 @@ async def investigate(
             await session_cm.__aexit__(None, None, None)
     except _Stop as stop:
         result.outcome = Outcome("incomplete", stop.reason, stop.detail)
+    except Exception as exc:  # noqa: BLE001
+        # 마지막 방어선: 어떤 예외든 실행 기록과 함께 미완료로 돌려줍니다(기록 없이 프로세스가 죽지 않게).
+        result.outcome = Outcome("incomplete", "AGENT_INTERNAL_ERROR", {"error": type(exc).__name__})
     return result

@@ -80,7 +80,7 @@ class AnthropicModelClient:
                 raise ModelCallError("deadline exceeded before model call", attempts - 1, True)
             try:
                 return await call(remaining), attempts
-            except Exception as exc:  # noqa: BLE001 - SDK 예외를 분류해 다시 던집니다
+            except Exception as exc:
                 retryable = is_retryable(exc)
                 if not retryable or attempts > self.max_retries:
                     raise ModelCallError(type(exc).__name__, attempts, retryable) from exc

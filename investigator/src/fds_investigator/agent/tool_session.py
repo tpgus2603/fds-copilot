@@ -44,10 +44,16 @@ class McpToolSession:
         env = {k: v for k, v in os.environ.items() if not k.startswith(("FDS_", "ANTHROPIC_"))}
         env |= {"FDS_ALLOWED_TARGETS": self._target, "FDS_DB_PATH": str(self._db_path)} | self._extra_env
         params = StdioServerParameters(command=sys.executable, args=["-m", "fds_investigator.server"], env=env)
-        read, write = await self._stack.enter_async_context(stdio_client(params))
-        self._session = await self._stack.enter_async_context(ClientSession(read, write))
-        await self._session.initialize()
-        listed = await self._session.list_tools()
+        try:
+            read, write = await self._stack.enter_async_context(stdio_client(params))
+            self._session = await self._stack.enter_async_context(ClientSession(read, write))
+            await self._session.initialize()
+            listed = await self._session.list_tools()
+        except BaseException:
+            # 프로세스를 띄운 뒤 initialize·list_tools가 실패하거나 시간 초과로 취소되면,
+            # 호출자는 __aexit__에 도달하지 못합니다. 이미 연 자식 프로세스와 스트림을 여기서 정리합니다.
+            await self._stack.aclose()
+            raise
         self.tools = [{"name": t.name, "description": t.description or "", "input_schema": t.inputSchema}
                       for t in listed.tools]
         return self
