@@ -6,6 +6,8 @@ on:
       - "investigator/**"
       - "contracts/**"
       - "docs/03_mcp_tool_spec.md"
+      - "docs/04_agent_workflow.md"
+      - "data/fixtures/**"
       - ".github/workflows/investigator-ci.yml"
   push:
     branches: [main]
@@ -13,6 +15,8 @@ on:
       - "investigator/**"
       - "contracts/**"
       - "docs/03_mcp_tool_spec.md"
+      - "docs/04_agent_workflow.md"
+      - "data/fixtures/**"
       - ".github/workflows/investigator-ci.yml"
 
 permissions:

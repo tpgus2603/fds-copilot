@@ -6,6 +6,7 @@
 |---|---|---|
 | `mcp/*.input.schema.json` | MCP 툴 입력 (`inputSchema`로 그대로 사용) | `docs/03_mcp_tool_spec.md` |
 | `mcp/*.output.schema.json` | MCP 툴 결과 (`structuredContent`) | `docs/03_mcp_tool_spec.md` |
+| `agent/report.schema.json` | 조사 보고서 (`submit_report` 입력) | `docs/04_agent_workflow.md` |
 
 - JSON Schema draft 2020-12를 사용합니다.
 - 스키마를 바꾸면 `schema_version`을 올리고, 관련 문서와 구현을 같은 PR에서 수정합니다.
