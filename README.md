@@ -43,6 +43,7 @@ Kaggle [`kartik2112/fraud-detection`](https://www.kaggle.com/datasets/kartik2112
 | [05 로드맵](docs/05_roadmap.md) | 8주 계획 |
 | [07 인수인계](docs/07_project_handoff.md) | 최신 설계 기준과 다음 작업 |
 | [08 기술 스택 검토](docs/08_tech_stack_review.md) | 기술 선택 근거와 트레이드오프 |
+| [09 테스트 전략](docs/09_test_strategy.md) | 계층별 테스트 방식과 도입 일정 |
 
 ## 개발 방식
 
