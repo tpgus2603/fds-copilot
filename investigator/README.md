@@ -108,3 +108,24 @@ uv run --locked fds-investigate high --provider openai --model qwen3.5-9b --db .
 - Ollama를 쓴다면 `--backend ollama --base-url http://localhost:11434/v1`을 붙입니다. 생각 끄기 필드가 `reasoning_effort: "none"`으로 바뀌고, 토큰화 API가 없어 문자 수로 추정합니다(최선 노력).
 - 서버의 컨텍스트 길이를 16,384가 아닌 값으로 띄웠다면 `--context-window <같은 값>`으로 맞춥니다. `max_tokens`(2,000)보다 커야 합니다.
 - 결과 출력의 `elapsed_seconds_approx`로 시간을, `outcome.reason`으로 미완료 사유를 확인합니다. 처음에는 `high`, `usual`, `new` 사례를 권합니다.
+
+## 문제 해결
+
+### macOS: `ModuleNotFoundError: No module named 'fds_investigator'`
+
+**증상**: 설치는 정상인데(`Built… Installed 1`) 실행하면 패키지를 찾지 못합니다.
+
+**원인**: 편집 가능 설치는 `site-packages/_editable_impl_fds_investigator.pth` 한 줄 파일로 `src` 경로를 `sys.path`에 추가합니다. CPython은 보안 수정 이후 숨김 속성(macOS `UF_HIDDEN`)이 붙은 `.pth` 파일을 건너뜁니다. 저장소를 `~/Desktop` 아래에 둔 환경에서 `.venv`와 그 안의 파일에 숨김 속성이 반복해서 다시 붙는 현상이 관찰되었습니다 (2026-11-14).
+
+**확인**:
+```sh
+ls -lO .venv/lib/python3.12/site-packages/*.pth    # hidden이 보이면 이 문제
+```
+
+**해결**: 가상환경을 숨김 속성이 붙지 않는 위치로 옮깁니다. 이 변수는 현재 터미널 세션에만 적용되므로 새 터미널마다 다시 실행합니다. `~/.zshrc`에 넣으면 모든 uv 프로젝트가 같은 가상환경을 공유해 충돌하므로 넣지 않습니다.
+```sh
+export UV_PROJECT_ENVIRONMENT="$HOME/.venvs/fds-investigator"
+uv sync --locked
+uv run --locked python -c "import fds_investigator, sys; print(sys.prefix)"   # ~/.venvs/fds-investigator 이면 정상
+```
+`chflags nohidden <파일>`로 속성을 지워도 일시적으로는 해결되지만, 속성이 다시 붙어 재발했습니다.
