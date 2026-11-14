@@ -44,3 +44,7 @@ coverage/
 # ===== Logs =====
 *.log
 logs/
+
+# ===== 조사 실행 기록 (로컬 실험) =====
+trace-*.json
+investigator/traces/
