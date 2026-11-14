@@ -11,6 +11,7 @@
 
 import argparse
 import asyncio
+import dataclasses
 import json
 import os
 import sys
@@ -18,7 +19,7 @@ from pathlib import Path
 
 from .loop import PROFILES, investigate
 from .model_client import AnthropicModelClient
-from .openai_client import OpenAICompatibleModelClient
+from .openai_client import BACKENDS, OpenAICompatibleModelClient
 from .tool_session import McpToolSession
 
 
@@ -30,8 +31,12 @@ def main() -> None:
     p.add_argument("--model", default=os.environ.get("CLAUDE_MODEL") or os.environ.get("FDS_MODEL"))
     p.add_argument("--profile", choices=sorted(PROFILES), help="상한 프로필 (기본: anthropic=cloud, openai=local)")
     p.add_argument("--thinking", action="store_true", help="로컬 모델의 생각 모드를 켭니다 (기본 끔)")
-    p.add_argument("--token-count", choices=["llama_cpp", "estimate"], default="llama_cpp",
-                   help="로컬 모델의 토큰 산정 방식 (llama-server가 아니면 estimate)")
+    p.add_argument("--backend", choices=sorted(BACKENDS), default=os.environ.get("FDS_MODEL_BACKEND", "llama_cpp"),
+                   help="OpenAI 호환 서버 종류. 생각 모드 끄기 필드와 기본 토큰 산정 방식을 정합니다")
+    p.add_argument("--token-count", choices=["llama_cpp", "estimate"],
+                   help="토큰 산정 방식 (기본: llama_cpp 백엔드는 서버 토크나이저, 그 밖은 estimate 최선 노력 추정)")
+    p.add_argument("--context-window", type=int,
+                   help="요청당 컨텍스트 창 (토큰). 서버의 컨텍스트 길이(llama-server -c, Ollama num_ctx)와 같게 맞춥니다")
     p.add_argument("--db", default=os.environ.get("FDS_DB_PATH"))
     p.add_argument("--out", type=Path, help="실행 기록(JSON) 저장 경로")
     a = p.parse_args()
@@ -48,14 +53,25 @@ def main() -> None:
         client = AnthropicModelClient()
         profile = a.profile or "cloud"
     else:
-        client = OpenAICompatibleModelClient(a.base_url, disable_thinking=not a.thinking, token_count=a.token_count,
-                                             api_key=os.environ.get("FDS_MODEL_API_KEY"))
+        extra = {"token_count": a.token_count} if a.token_count else {}
+        client = OpenAICompatibleModelClient.for_backend(a.backend, a.base_url, disable_thinking=not a.thinking,
+                                                         api_key=os.environ.get("FDS_MODEL_API_KEY"), **extra)
         profile = a.profile or "local"
 
+    limits = PROFILES[profile]
+    if a.context_window is not None:
+        if a.context_window <= limits.max_tokens:
+            print(f"[fds-investigate] --context-window는 max_tokens({limits.max_tokens})보다 커야 합니다", file=sys.stderr)
+            sys.exit(2)
+        limits = dataclasses.replace(limits, context_window=a.context_window)
+
     result = asyncio.run(investigate(
-        a.target_transaction_id, client, lambda target: McpToolSession(target, Path(a.db)), a.model, PROFILES[profile]))
+        a.target_transaction_id, client, lambda target: McpToolSession(target, Path(a.db)), a.model, limits))
     data = result.to_dict()
     data["provider"], data["profile"] = a.provider, profile
+    if a.provider == "openai":
+        data["backend"], data["token_count"] = a.backend, client.token_count
+        data["context_window"] = limits.context_window
     if a.out:
         a.out.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     seconds = sum(s.get("duration_ms", 0) for s in data["steps"]) / 1000

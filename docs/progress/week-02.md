@@ -56,13 +56,16 @@ W1의 #12(Codex), #13(사람)과 병행합니다. #14는 W1 결과에 의존하�
 - 어댑터는 llama.cpp 전용이 아니라 OpenAI 호환 형식으로 구현 (Ollama, vLLM, 내부 추론 서버에 같은 코드 사용)
 - 상한을 모델별 프로필로 분리. 로컬은 300초, 요청당 컨텍스트 16,384 검사
 - Claude API는 기준선 비교용으로 최소한만 사용 (Haiku 위주, 월 한도 5달러)
+- (PR #29 리뷰) `finish_reason`의 `length`·`content_filter`는 툴 호출보다 우선. 잘린 `submit_report`가 접수되던 경로 차단
+- (PR #29 리뷰) 응답 구조 검증(빈 `choices`, 잘못된 `usage` 등)을 재시도 래퍼 안에서 수행 → 비재시도 `MODEL_API_ERROR`, 기록 보존
+- (PR #29 리뷰) `--backend llama_cpp|ollama|generic`으로 생각 끄기 필드를 서버별로 선택, `--context-window` 추가, 문자 수 추정은 최선 노력으로 문서화
 
 ## 기타
 - #8 저장소 설정 확인 후 닫음 (main 규칙셋, 병합 브랜치 자동 삭제). 이전에 병합된 브랜치 7개는 세션 권한(403)으로 삭제하지 못해 남아 있음
 - Git 프록시가 오래된 main을 반환하는 현상 재발. 커밋 SHA 전체를 지정해 fetch
 
 ## 다음 작업
-1. #15 PR 리뷰 (Codex), 실제 Claude API 1회 실행 (사람)
+1. #27 → #29 재리뷰 (Codex), 실제 Claude API 1회 실행 (사람, 선택)
 2. 로컬 모델 실행 (사람): llama.cpp 설치, 9B 다운로드, `fds-investigate --provider openai`
 3. #26 평가 세트 v0 (로컬 모델 주력, Claude Haiku 기준선)
 4. W1 마무리: #13 Claude Code 연결 (사람)

@@ -5,13 +5,18 @@ from pathlib import Path
 
 import httpx
 import pytest
-
 from agent_fakes import FakeModel, high_report, respond, submit
+
 from fds_investigator.agent import model_client as mc
 from fds_investigator.agent.loop import PROFILES, Limits, investigate
 from fds_investigator.agent.model_client import ModelCallError, ModelRequest
-from fds_investigator.agent.openai_client import (OpenAICompatibleModelClient, from_openai_response,
-                                                  to_openai_messages, to_openai_tools)
+from fds_investigator.agent.openai_client import (
+    OpenAICompatibleModelClient,
+    OpenAIResponseError,
+    from_openai_response,
+    to_openai_messages,
+    to_openai_tools,
+)
 from fds_investigator.agent.tool_session import McpToolSession
 from fds_investigator.load_csv import load
 
@@ -57,6 +62,8 @@ class FakeServer:
         if request.url.path == "/tokenize":
             return httpx.Response(200, json={"tokens": list(range(len(body["content"]) // 4))})
         item = self.script.pop(0)
+        if isinstance(item, httpx.Response):
+            return item
         if isinstance(item, Exception):
             raise item
         status, payload = item if isinstance(item, tuple) else (200, item)
@@ -215,3 +222,139 @@ def test_profiles():
     assert PROFILES["cloud"] == Limits()
     assert PROFILES["local"].total_seconds > PROFILES["cloud"].total_seconds
     assert PROFILES["local"].context_window == 16_384
+
+
+# ---------- PR #29 리뷰 회귀 ----------
+
+@pytest.mark.parametrize("finish,stop", [("length", "max_tokens"), ("content_filter", "refusal")])
+def test_truncation_and_filter_win_over_tool_calls(finish, stop):
+    # 잘리거나 필터에 걸린 응답의 툴 호출은 실행하면 안 됩니다
+    body = completion({"content": None, "tool_calls": [tool_call("submit_report", {"a": 1})]}, finish)
+    assert from_openai_response(body)[1] == stop
+
+
+@pytest.mark.parametrize("finish,reason", [("length", "MODEL_OUTPUT_TRUNCATED"), ("content_filter", "MODEL_REFUSAL")])
+async def test_truncated_submit_is_not_accepted_by_loop(db, finish, reason):
+    server = FakeServer(completion({"content": None, "tool_calls": [
+        tool_call("get_transaction_history", {"target_transaction_id": "high", "lookback_days": 7}),
+        tool_call("submit_report", high_report(), "call_2")]}, finish))
+    r = await investigate("high", server.client(), lambda t: McpToolSession(t, db), "qwen", PROFILES["local"])
+    assert r.outcome.reason == reason
+    assert r.report is None and set(r.tool_results) == {"EV-TH-high-90d"}   # 조회도 제출도 실행 안 됨
+
+
+def _bad(**over):
+    body = completion({"content": "끝"}, "stop")
+    for path, value in over.items():
+        target, *keys = path.split("__")
+        node = body
+        for k in [target, *keys][:-1]:
+            node = node[int(k)] if k.isdigit() else node[k]
+        last = [target, *keys][-1]
+        if value is ...:
+            del node[last]
+        else:
+            node[last] = value
+    return body
+
+
+MALFORMED = {
+    "not-object": [],
+    "choices-empty": _bad(choices=[]),
+    "choices-null": _bad(choices=None),
+    "choices-missing": _bad(choices=...),
+    "choice-not-object": _bad(choices=["x"]),
+    "message-null": _bad(choices__0__message=None),
+    "content-number": _bad(choices__0__message__content=5),
+    "tool-calls-object": _bad(choices__0__message__tool_calls={"id": "x"}),
+    "tool-call-no-name": completion({"tool_calls": [{"id": "c", "type": "function", "function": {"arguments": "{}"}}]}),
+    "tool-call-not-object": completion({"tool_calls": ["x"]}),
+    "usage-missing": _bad(usage=...),
+    "usage-string": _bad(usage__prompt_tokens="900"),
+    "usage-negative": _bad(usage__completion_tokens=-1),
+    "usage-bool": _bad(usage__prompt_tokens=True),
+}
+
+
+@pytest.mark.parametrize("body", MALFORMED.values(), ids=MALFORMED.keys())
+def test_malformed_response_is_rejected(body):
+    with pytest.raises(OpenAIResponseError):
+        from_openai_response(body)
+
+
+@pytest.mark.parametrize("item", [
+    (200, {"choices": []}),
+    httpx.Response(200, text="<html>proxy error</html>"),
+], ids=["empty-choices", "non-json"])
+async def test_malformed_response_is_non_retryable_model_error(item):
+    server = FakeServer(item, completion({"content": "끝"}, "stop"))
+    with pytest.raises(ModelCallError) as exc:
+        await server.client().create(ModelRequest("qwen", "s", TOOLS, MESSAGES, 10), timeout=10)
+    assert (exc.value.attempts, exc.value.retryable) == (1, False)
+    assert len(server.chat_bodies()) == 1                         # 같은 요청을 다시 보내지 않음
+
+
+async def test_malformed_response_ends_as_model_api_error_with_trace(db):
+    server = FakeServer((200, {"choices": []}))
+    r = await investigate("high", server.client(), lambda t: McpToolSession(t, db), "qwen", PROFILES["local"])
+    assert (r.outcome.status, r.outcome.reason) == ("incomplete", "MODEL_API_ERROR")
+    assert "EV-TH-high-90d" in r.tool_results                     # 기본 증거 기록은 보존
+    json.dumps(r.to_dict(), ensure_ascii=False)
+
+
+async def test_tokenize_without_tokens_is_model_error():
+    class NoTokens(FakeServer):
+        def handler(self, request):
+            if request.url.path == "/tokenize":
+                return httpx.Response(200, json={"error": "unsupported"})
+            return super().handler(request)
+    with pytest.raises(ModelCallError):
+        await NoTokens().client().count_tokens(ModelRequest("qwen", "s", TOOLS, MESSAGES, 10), 10)
+
+
+# ---------- 백엔드별 생각 모드 끄기 ----------
+
+def _backend_client(server: FakeServer, backend: str, **kw) -> OpenAICompatibleModelClient:
+    http = httpx.AsyncClient(transport=httpx.MockTransport(server.handler))
+    return OpenAICompatibleModelClient.for_backend(backend, BASE, client=http, **kw)
+
+
+@pytest.mark.parametrize("backend,present,absent,token_count", [
+    ("llama_cpp", {"chat_template_kwargs": {"enable_thinking": False}}, "reasoning_effort", "llama_cpp"),
+    ("ollama", {"reasoning_effort": "none"}, "chat_template_kwargs", "estimate"),
+])
+async def test_thinking_off_field_matches_backend(backend, present, absent, token_count):
+    server = FakeServer(completion({"content": "끝"}, "stop"))
+    client = _backend_client(server, backend)
+    await client.create(ModelRequest("qwen", "s", TOOLS, MESSAGES, 10), timeout=10)
+    body = server.chat_bodies()[0]
+    assert present.items() <= body.items() and absent not in body
+    assert client.token_count == token_count
+
+
+async def test_generic_backend_and_thinking_on_send_no_control_field():
+    for client_kw in ({"backend": "generic"}, {"backend": "ollama", "disable_thinking": False}):
+        server = FakeServer(completion({"content": "끝"}, "stop"))
+        backend = client_kw.pop("backend")
+        await _backend_client(server, backend, **client_kw).create(ModelRequest("q", "s", TOOLS, MESSAGES, 10), 10)
+        body = server.chat_bodies()[0]
+        assert "chat_template_kwargs" not in body and "reasoning_effort" not in body
+
+
+def test_token_count_override_and_invalid_values():
+    assert OpenAICompatibleModelClient.for_backend("ollama", BASE, token_count="llama_cpp").token_count == "llama_cpp"
+    with pytest.raises(ValueError):
+        OpenAICompatibleModelClient(BASE, thinking_control="think")
+    with pytest.raises(ValueError):
+        OpenAICompatibleModelClient(BASE, token_count="tiktoken")
+
+
+# ---------- CLI: --context-window ----------
+
+def test_cli_rejects_context_window_not_larger_than_max_tokens(monkeypatch, capsys):
+    from fds_investigator.agent import cli
+    monkeypatch.setattr("sys.argv", ["fds-investigate", "high", "--provider", "openai", "--model", "q",
+                                     "--db", "x.sqlite", "--context-window", "2000"])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 2 and "context-window" in capsys.readouterr().err

@@ -105,5 +105,6 @@ uv run --locked fds-investigate high --provider openai --model qwen3.5-9b --db .
 ```
 
 - `--provider openai`면 `local` 프로필(300초, 컨텍스트 16,384)이 적용됩니다.
-- Ollama를 쓴다면 `--base-url http://localhost:11434/v1 --token-count estimate`를 붙입니다(토큰화 API가 없어 문자 수로 추정).
+- Ollama를 쓴다면 `--backend ollama --base-url http://localhost:11434/v1`을 붙입니다. 생각 끄기 필드가 `reasoning_effort: "none"`으로 바뀌고, 토큰화 API가 없어 문자 수로 추정합니다(최선 노력).
+- 서버의 컨텍스트 길이를 16,384가 아닌 값으로 띄웠다면 `--context-window <같은 값>`으로 맞춥니다. `max_tokens`(2,000)보다 커야 합니다.
 - 결과 출력의 `elapsed_seconds_approx`로 시간을, `outcome.reason`으로 미완료 사유를 확인합니다. 처음에는 `high`, `usual`, `new` 사례를 권합니다.

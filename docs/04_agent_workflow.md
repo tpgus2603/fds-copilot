@@ -146,10 +146,26 @@ next     = 이번에 보낼 요청 전체(system + tools + messages)를 count_to
 | 구현 | 대상 | 토큰 산정 |
 |---|---|---|
 | `AnthropicModelClient` | Claude API | `messages.count_tokens` |
-| `OpenAICompatibleModelClient` | `/v1/chat/completions`를 지원하는 서버: llama.cpp `llama-server`, Ollama, vLLM, 내부 추론 서버 | llama-server의 `/apply-template` + `/tokenize`(모델 토크나이저 기준), 또는 문자 수 보수 추정 |
+| `OpenAICompatibleModelClient` | `/v1/chat/completions`를 지원하는 서버: llama.cpp `llama-server`, Ollama, vLLM, 내부 추론 서버 | llama-server의 `/apply-template` + `/tokenize`(모델 토크나이저 기준, 정확), 그 밖의 서버는 문자 수 추정(**최선 노력**, 아래) |
 | 테스트용 가짜 클라이언트 | CI | 고정값 |
 
-OpenAI 호환 어댑터는 대화를 양방향으로 변환합니다(`tool_use`/`tool_result` ↔ `tool_calls`/`role: tool`, `finish_reason` → `stop_reason`). 툴 호출이 있는데 `finish_reason`이 `stop`인 서버도 있어, 툴 호출이 있으면 `tool_use`로 봅니다. 깨진 JSON 인자는 버리지 않고 표시해 툴 서버의 입력 검증이 거부하게 합니다. 생각 모드는 기본으로 끄고(`chat_template_kwargs.enable_thinking=false`), `reasoning_content`는 받지 않습니다(3절 원칙).
+OpenAI 호환 어댑터는 대화를 양방향으로 변환합니다(`tool_use`/`tool_result` ↔ `tool_calls`/`role: tool`, `finish_reason` → `stop_reason`). 깨진 JSON 인자는 버리지 않고 표시해 툴 서버의 입력 검증이 거부하게 합니다. `reasoning_content`는 받지 않습니다(3절 원칙).
+
+**종료 사유 우선순위** (PR #29 리뷰): `length` → `max_tokens`, `content_filter` → `refusal`은 툴 호출이 들어 있어도 우선합니다. 잘린 응답의 툴 호출은 인자가 불완전할 수 있고, 필터에 걸린 응답은 실행하면 안 되기 때문입니다. 루프는 이 두 사유에서 조회와 제출을 모두 실행하지 않고 미완료로 끝냅니다. 툴 호출이 있는데 `finish_reason`이 `stop`인 서버도 있어, `stop`·`tool_calls`일 때만 툴 호출이 있으면 `tool_use`로 봅니다.
+
+**응답 구조 검증** (PR #29 리뷰): HTTP 200이어도 `choices`가 비었거나, `message`·`tool_calls`·`function.name`의 형식이 어긋나거나, `usage.prompt_tokens`·`completion_tokens`가 음이 아닌 정수가 아니거나, 본문이 JSON이 아니면 `OpenAIResponseError`입니다. 같은 요청을 다시 보내도 고쳐지지 않으므로 재시도하지 않고 `MODEL_API_ERROR`로 끝나며, 그때까지의 기록은 보존합니다. `usage`가 없으면 누적 입력 토큰 예산을 셀 수 없으므로 오류로 봅니다.
+
+**생각 모드 끄기는 서버마다 필드가 다릅니다** (`--backend`):
+
+| `--backend` | 생각 끄기 필드 | 기본 토큰 산정 |
+|---|---|---|
+| `llama_cpp` (기본) | `chat_template_kwargs.enable_thinking=false` (llama-server, vLLM) | 서버 토크나이저 |
+| `ollama` | `reasoning_effort: "none"` (켜고 끄기만 되는 모델에서 생각 끔) | 문자 수 추정 |
+| `generic` | 보내지 않음 (모델 기본값) | 문자 수 추정 |
+
+서버가 모르는 필드는 대부분 조용히 무시되므로, 잘못된 백엔드를 고르면 오류 없이 생각 모드가 켜진 채로 동작할 수 있습니다. 실행 기록의 출력 토큰 수가 비정상적으로 크면 이것부터 확인합니다.
+
+**문자 수 추정은 최선 노력입니다.** 한국어·JSON 혼합에서 과소 추정하지 않도록 2자당 1토큰으로 세지만, 채팅 템플릿이 붙이는 토큰과 토크나이저 차이는 반영하지 못합니다. 그래서 요청당 컨텍스트 검사(`CONTEXT_LIMIT`)가 보장이 아니라 사전 경고 수준이 됩니다. 서버의 컨텍스트 길이(llama-server `-c`, Ollama `num_ctx`)와 `--context-window`를 같게 맞추고, 그래도 넘치면 서버가 거부해 `MODEL_API_ERROR`로 끝납니다. 정확한 산정이 필요하면 llama-server를 씁니다.
 
 제공자를 바꿔도 툴 서버, 조사 범위, 제출 규칙, 검증 V1~V7, 렌더링은 그대로이므로, 같은 합성 사례로 모델을 공정하게 비교할 수 있습니다.
 
