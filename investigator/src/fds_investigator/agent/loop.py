@@ -40,6 +40,14 @@ class Limits:
     total_seconds: float = 120.0
     max_tokens: int = 2000
     input_token_budget: int = 60_000
+    context_window: int | None = None   # 요청 1건의 입력 + max_tokens 상한 (로컬 모델의 n_ctx)
+
+
+# 모델별 상한 프로필 (#28). 클라우드는 비용, 로컬은 속도와 컨텍스트 창이 제약입니다.
+PROFILES: dict[str, Limits] = {
+    "cloud": Limits(),
+    "local": Limits(total_seconds=300.0, input_token_budget=200_000, context_window=16_384),
+}
 
 
 @dataclass
@@ -204,6 +212,9 @@ async def investigate(
             record("token_check", started, spent=usage.input_tokens, next=next_tokens, projected=round(projected))
             if projected > limits.input_token_budget:
                 raise _Stop("TOKEN_BUDGET", {"spent": usage.input_tokens, "next": next_tokens})
+            if limits.context_window is not None and next_tokens + limits.max_tokens > limits.context_window:
+                raise _Stop("CONTEXT_LIMIT", {"next": next_tokens, "max_tokens": limits.max_tokens,
+                                              "context_window": limits.context_window})
 
             # 4. 모델 호출
             started = loop.time()

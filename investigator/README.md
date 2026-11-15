@@ -16,6 +16,7 @@ AI 조사 서비스와 증거 조회용 MCP 툴 서버(Python 3.12, `uv`)입니�
 | `fds_investigator/report_rules.py` | 보고서 검증 V1(숫자 문자)·V4(값 비교) 기준 구현 |
 | `fds_investigator/agent/loop.py` | 조사 루프: 기본 증거, 상한, 마감 시각, 제출 규칙, 미완료 사유 (`docs/04`) |
 | `fds_investigator/agent/model_client.py` | 모델 호출 인터페이스와 Anthropic 구현 (재시도·시도 횟수 직접 관리) |
+| `fds_investigator/agent/openai_client.py` | OpenAI 호환 서버(llama.cpp, Ollama, vLLM) 어댑터 |
 | `fds_investigator/agent/tool_session.py` | 조사 1건 전용 툴 서버 세션 (대상 거래 하나로 범위 고정) |
 | `fds_investigator/agent/render.py`, `verify.py` | 렌더링 카탈로그, 보고서 검증 V1~V7 |
 | `fds_investigator/agent/cli.py` | `fds-investigate` 명령 |
@@ -72,3 +73,38 @@ uv run --locked fds-investigate high --db ./local.db --out ./trace-high.json
 - 조사 1건당 상한: 모델 호출 6회, 조회 8회, 120초, 입력 토큰 60,000 (`docs/04` 2.4)
 
 키는 툴 서버 프로세스로 전달되지 않고 실행 기록에도 남지 않습니다. `.env.example`은 자동으로 로드되지 않습니다.
+
+## 로컬 모델로 실행 (llama.cpp, #28)
+
+API 비용 없이 Mac에서 오픈소스 모델로 조사 루프를 실행합니다. 권장 순서는 9B로 연결을 확인한 뒤 27B로 품질을 비교하는 것입니다.
+
+**1. 설치와 모델 다운로드** (텍스트만 쓰므로 이미지용 `mmproj` 파일은 받지 않습니다. 저장소 전체가 아니라 `.gguf` 파일 하나만 받습니다)
+
+```sh
+brew install llama.cpp
+mkdir -p ~/models
+# 파일 이름은 각 저장소의 Files 목록에서 확인하십시오
+uvx --from huggingface_hub hf download unsloth/Qwen3.5-9B-GGUF  Qwen3.5-9B-Q4_K_M.gguf     --local-dir ~/models
+uvx --from huggingface_hub hf download unsloth/Qwen3.8-27B-GGUF Qwen3.8-27B-UD-Q4_K_M.gguf --local-dir ~/models   # 2단계
+```
+
+**2. 로컬 서버 실행** (별도 터미널, 켜 둔 채로)
+
+```sh
+llama-server -m ~/models/Qwen3.5-9B-Q4_K_M.gguf --jinja -c 16384 --port 8080
+```
+
+- `--jinja`: 모델의 채팅 템플릿으로 툴 호출을 처리합니다. 없으면 툴 호출이 동작하지 않습니다.
+- `-c 16384`: 컨텍스트 창. `local` 프로필의 `context_window`와 같게 둡니다. 8K는 보고서 생성 단계에서 부족합니다.
+- 생각 모드는 조사 서비스가 요청마다 끕니다(`--thinking`으로 켤 수 있음). 서버 쪽에서도 끄려면 llama-server의 reasoning 관련 옵션을 사용하십시오(버전마다 이름이 다를 수 있음).
+
+**3. 조사 실행**
+
+```sh
+uv run --locked fds-investigate high --provider openai --model qwen3.5-9b --db ./local.db --out ./trace-local-high.json
+```
+
+- `--provider openai`면 `local` 프로필(300초, 컨텍스트 16,384)이 적용됩니다.
+- Ollama를 쓴다면 `--backend ollama --base-url http://localhost:11434/v1`을 붙입니다. 생각 끄기 필드가 `reasoning_effort: "none"`으로 바뀌고, 토큰화 API가 없어 문자 수로 추정합니다(최선 노력).
+- 서버의 컨텍스트 길이를 16,384가 아닌 값으로 띄웠다면 `--context-window <같은 값>`으로 맞춥니다. `max_tokens`(2,000)보다 커야 합니다.
+- 결과 출력의 `elapsed_seconds_approx`로 시간을, `outcome.reason`으로 미완료 사유를 확인합니다. 처음에는 `high`, `usual`, `new` 사례를 권합니다.

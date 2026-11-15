@@ -64,30 +64,39 @@ def is_retryable(exc: BaseException) -> bool:
     return False
 
 
+async def call_with_retry(call, timeout: float, max_retries: int, retryable_fn) -> tuple[Any, int]:
+    """call(남은 시간)을 실행하고 (결과, 실제 시도 횟수)를 돌려줍니다. 모든 ModelClient 구현이 공유합니다.
+
+    재시도 대상인지는 retryable_fn이 판단합니다(429·5xx·연결 실패 등). 대기 시간까지 포함해
+    주어진 timeout 안에서만 재시도합니다.
+    """
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    attempts = 0
+    while True:
+        attempts += 1
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            raise ModelCallError("deadline exceeded before model call", attempts - 1, True)
+        try:
+            return await call(remaining), attempts
+        except Exception as exc:  # 구현별 예외를 분류해 다시 던집니다
+            retryable = retryable_fn(exc)
+            if not retryable or attempts > max_retries:
+                raise ModelCallError(type(exc).__name__, attempts, retryable) from exc
+            wait = BACKOFF_SECONDS[min(attempts - 1, len(BACKOFF_SECONDS) - 1)]
+            if loop.time() + wait >= deadline:
+                raise ModelCallError(type(exc).__name__, attempts, retryable) from exc
+            await asyncio.sleep(wait)
+
+
 @dataclass
 class AnthropicModelClient:
     client: anthropic.AsyncAnthropic = field(default_factory=lambda: anthropic.AsyncAnthropic(max_retries=0))
     max_retries: int = MAX_RETRIES
 
     async def _with_retry(self, call, timeout: float):
-        loop = asyncio.get_running_loop()
-        deadline = loop.time() + timeout
-        attempts = 0
-        while True:
-            attempts += 1
-            remaining = deadline - loop.time()
-            if remaining <= 0:
-                raise ModelCallError("deadline exceeded before model call", attempts - 1, True)
-            try:
-                return await call(remaining), attempts
-            except Exception as exc:
-                retryable = is_retryable(exc)
-                if not retryable or attempts > self.max_retries:
-                    raise ModelCallError(type(exc).__name__, attempts, retryable) from exc
-                wait = BACKOFF_SECONDS[min(attempts - 1, len(BACKOFF_SECONDS) - 1)]
-                if loop.time() + wait >= deadline:
-                    raise ModelCallError(type(exc).__name__, attempts, retryable) from exc
-                await asyncio.sleep(wait)
+        return await call_with_retry(call, timeout, self.max_retries, is_retryable)
 
     async def count_tokens(self, request: ModelRequest, timeout: float) -> int:
         async def call(t):
