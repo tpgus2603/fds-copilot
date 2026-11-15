@@ -19,7 +19,7 @@ from pathlib import Path
 
 from .loop import PROFILES, investigate
 from .model_client import AnthropicModelClient
-from .openai_client import BACKENDS, OpenAICompatibleModelClient
+from .openai_client import BACKENDS, SAMPLING_PRESETS, OpenAICompatibleModelClient
 from .tool_session import McpToolSession
 
 
@@ -35,6 +35,8 @@ def main() -> None:
                    help="OpenAI 호환 서버 종류. 생각 모드 끄기 필드와 기본 토큰 산정 방식을 정합니다")
     p.add_argument("--token-count", choices=["llama_cpp", "estimate"],
                    help="토큰 산정 방식 (기본: llama_cpp 백엔드는 서버 토크나이저, 그 밖은 estimate 최선 노력 추정)")
+    p.add_argument("--sampling", choices=sorted(SAMPLING_PRESETS), default=os.environ.get("FDS_SAMPLING", "qwen-instruct"),
+                   help="샘플링 프리셋 (server: 서버 기본값, qwen-instruct: Qwen3.5 비사고 모드 권장값)")
     p.add_argument("--context-window", type=int,
                    help="요청당 컨텍스트 창 (토큰). 서버의 컨텍스트 길이(llama-server -c, Ollama num_ctx)와 같게 맞춥니다")
     p.add_argument("--db", default=os.environ.get("FDS_DB_PATH"))
@@ -54,7 +56,7 @@ def main() -> None:
         profile = a.profile or "cloud"
     else:
         extra = {"token_count": a.token_count} if a.token_count else {}
-        client = OpenAICompatibleModelClient.for_backend(a.backend, a.base_url, disable_thinking=not a.thinking,
+        client = OpenAICompatibleModelClient.for_backend(a.backend, a.base_url, disable_thinking=not a.thinking, sampling=a.sampling,
                                                          api_key=os.environ.get("FDS_MODEL_API_KEY"), **extra)
         profile = a.profile or "local"
 
@@ -71,6 +73,8 @@ def main() -> None:
     data["provider"], data["profile"] = a.provider, profile
     if a.provider == "openai":
         data["backend"], data["token_count"] = a.backend, client.token_count
+        data["sampling"] = {"preset": a.sampling, **SAMPLING_PRESETS[a.sampling],
+                            "parallel_tool_calls": client.parallel_tool_calls}
         data["context_window"] = limits.context_window
     if a.out:
         a.out.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")

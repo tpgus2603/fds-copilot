@@ -41,6 +41,16 @@ BACKENDS = {  # --backend 값 → (생각 끄기 방식, 기본 토큰 산정 �
 }
 
 
+# 샘플링 프리셋 (#32). server는 아무것도 보내지 않아 서버 기본값을 따릅니다.
+# qwen-instruct: Unsloth Qwen3.5 문서의 비사고(instruct) 모드 일반 작업 권장값. presence_penalty는
+# 같은 출력의 반복(한 응답에 같은 submit_report를 되풀이하는 현상)을 줄이기 위한 값입니다.
+# top_k, min_p는 OpenAI 표준 필드가 아니지만 llama-server, vLLM, Ollama /v1이 받습니다.
+SAMPLING_PRESETS: dict[str, dict[str, float | int]] = {
+    "server": {},
+    "qwen-instruct": {"temperature": 0.7, "top_p": 0.8, "top_k": 20, "min_p": 0.0, "presence_penalty": 1.5},
+}
+
+
 class OpenAIResponseError(Exception):
     """서버가 200을 돌려줬지만 본문이 예상 구조가 아님. 같은 요청을 다시 보내도 고쳐지지 않으므로 재시도하지 않습니다."""
 
@@ -177,6 +187,9 @@ class OpenAICompatibleModelClient:
     base_url: str
     disable_thinking: bool = True
     thinking_control: str = "chat_template_kwargs"   # THINKING_CONTROLS 중 하나 (BACKENDS 참고)
+    sampling: str = "server"                         # SAMPLING_PRESETS 중 하나
+    # 한 응답에 툴 호출 하나만. 루프는 한 번에 하나씩 조회하고, 제출은 단독 호출이어야 하므로 병렬이 필요 없습니다.
+    parallel_tool_calls: bool = False
     token_count: str = "llama_cpp"        # "llama_cpp": 서버 토크나이저로 산정 / "estimate": 문자 수로 보수적 추정
     api_key: str | None = None            # 내부 추론 서버가 인증을 요구할 때만
     max_retries: int = MAX_RETRIES
@@ -185,6 +198,8 @@ class OpenAICompatibleModelClient:
     def __post_init__(self) -> None:
         if self.thinking_control not in THINKING_CONTROLS:
             raise ValueError(f"thinking_control must be one of {THINKING_CONTROLS}")
+        if self.sampling not in SAMPLING_PRESETS:
+            raise ValueError(f"sampling must be one of {sorted(SAMPLING_PRESETS)}")
         if self.token_count not in ("llama_cpp", "estimate"):
             raise ValueError("token_count must be llama_cpp or estimate")
 
@@ -209,6 +224,9 @@ class OpenAICompatibleModelClient:
         }
         if with_max_tokens:
             body["max_tokens"] = request.max_tokens
+            # 생성 요청에만 붙입니다. 토큰 산정(/apply-template)에는 영향이 없습니다.
+            body.update(SAMPLING_PRESETS[self.sampling])
+            body["parallel_tool_calls"] = self.parallel_tool_calls
         if self.disable_thinking:
             if self.thinking_control == "chat_template_kwargs":
                 body["chat_template_kwargs"] = {"enable_thinking": False}

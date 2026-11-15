@@ -77,6 +77,12 @@ W1의 #12(Codex), #13(사람)과 병행합니다. #14는 W1 결과에 의존하�
 - 로컬 환경 문제: macOS에서 `.venv`의 `.pth` 파일에 숨김 속성이 반복해서 붙어 `ModuleNotFoundError`. `UV_PROJECT_ENVIRONMENT`로 가상환경을 `~/.venvs/fds-investigator`로 옮겨 해결 (README 문제 해결 절)
 - V8~V10 적용 후 9B `new`·`high` 재실행 착수. 결과 미확인 (첫 요청에서 출력 1,160토큰 이상 생성 중 확인)
 
+## 2026-11-15 작업 기록
+- 9B 재실행 결과 (V8~V10 적용): `new` → `MODEL_OUTPUT_TRUNCATED` (같은 `submit_report` 6회 반복), `high` → `REPORT_SCHEMA_INVALID` (`value`에 배열 전체 인용). 검증기는 의도대로 거부
+- 원인을 생성 설정으로 분리: 샘플링 미전송(서버 기본값), 병렬 툴 호출 허용 → 이슈 #32
+- `--sampling qwen-instruct`(기본) 프리셋, `parallel_tool_calls: false`, 프롬프트에 단일 값 인용 안내, 실행 기록에 샘플링 기록
+- 27B 다운로드 시작 (사람)
+
 ## 다음 작업
 1. #27 → #29 → #30 재리뷰 (Codex), 실제 Claude API 1회 실행 (사람, 선택)
 2. 로컬 9B로 `high`·`usual`·`new` 재실행해 V8~V10 적용 후 결과 확인 (사람)
