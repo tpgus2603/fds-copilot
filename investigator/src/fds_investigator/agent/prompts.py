@@ -96,3 +96,19 @@ def initial_user_message(target_transaction_id: str, baseline: dict[str, Any]) -
 
 
 NUDGE = "조사를 마쳤다면 submit_report 하나만 호출해 보고서를 제출하십시오."
+
+
+def repair_request(failures: list[dict[str, Any]]) -> dict[str, Any]:
+    """검증 실패 보고서에 대한 수정 요청 (docs/04 4.4, #38).
+
+    실패 위치와 사유만 돌려주고 고친 문장을 제안하지 않습니다. 검증기가 대신 써 준 보고서가 되지 않게 하고,
+    무엇을 고칠지는 모델이 근거를 다시 보고 판단하게 하기 위해서입니다.
+    """
+    return {
+        "status": "rejected",
+        "error": {"code": "REPORT_INVALID",
+                  "message": "보고서가 검증을 통과하지 못했습니다. 아래 위치를 고쳐 submit_report 하나만 호출해 "
+                             "보고서 전체를 다시 제출하십시오. 근거가 문장과 맞지 않으면 문장이나 근거를 고치거나 "
+                             "그 근거를 빼십시오. 다시 실패하면 조사는 미완료로 끝납니다."},
+        "failures": failures,
+    }

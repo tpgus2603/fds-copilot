@@ -134,7 +134,8 @@ def test_first_failure_code_keeps_v1_v7_priority(snaps):
 @pytest.mark.anyio
 async def test_loop_marks_9b_style_report_incomplete(db):
     bad = REJECT["no-placeholder-9b"][0]
-    r = await investigate("high", FakeModel(respond(submit(bad))), lambda x: McpToolSession(x, db), "fake", Limits())
+    r = await investigate("high", FakeModel(respond(submit(bad))), lambda x: McpToolSession(x, db), "fake",
+                          Limits(max_report_repairs=0))
     assert (r.outcome.status, r.outcome.reason) == ("incomplete", "EVIDENCE_NOT_REFERENCED")
 
 

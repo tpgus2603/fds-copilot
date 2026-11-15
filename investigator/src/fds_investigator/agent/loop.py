@@ -20,6 +20,7 @@ from .prompts import (
     SUBMIT_REPORT,
     SYSTEM_PROMPT,
     initial_user_message,
+    repair_request,
     submit_report_tool,
 )
 from .render import render_statement
@@ -41,6 +42,8 @@ class Limits:
     max_tokens: int = 2000
     input_token_budget: int = 60_000
     context_window: int | None = None   # 요청 1건의 입력 + max_tokens 상한 (로컬 모델의 n_ctx)
+    # 보고서 검증 실패 시 실패 목록을 돌려주고 다시 제출받는 횟수 (4.4, #38). 0이면 첫 제출만 평가합니다.
+    max_report_repairs: int = 1
 
 
 # 모델별 상한 프로필 (#28). 클라우드는 비용, 로컬은 속도와 컨텍스트 창이 제약입니다.
@@ -59,6 +62,8 @@ class Usage:
     rejected_calls: int = 0
     input_tokens: int = 0         # spent: 성공한 요청의 usage.input_tokens 합
     output_tokens: int = 0
+    report_submissions: int = 0   # 검증까지 간 단독 제출 수
+    report_repairs: int = 0       # 검증 실패 후 수정 요청 수
 
 
 @dataclass
@@ -80,6 +85,8 @@ class InvestigationResult:
     outcome: Outcome
     report: dict | None = None
     rendered: dict | None = None
+    # 첫 제출이 검증을 통과했는지 (수정 요청 효과와 분리해 평가하기 위한 지표, #38). 제출이 없으면 None
+    first_submission_ok: bool | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -263,11 +270,22 @@ async def investigate(
             if len(submits) == 1 and not lookups:
                 report = submits[0]["input"]
                 result.report = report
-                record("report_submitted", loop.time())
+                usage.report_submissions += 1
+                record("report_submitted", loop.time(), submission=usage.report_submissions)
                 verdict = verify_report(report, snapshots)
                 record("verification", loop.time(), ok=verdict.ok, code=verdict.code, failures=verdict.failures)
+                if result.first_submission_ok is None:
+                    result.first_submission_ok = verdict.ok
                 if not verdict.ok:
-                    raise _Stop(verdict.code, verdict.failures)
+                    # 4.4: 남은 수정 횟수가 있으면 실패 목록을 돌려주고 다시 제출받습니다. 상한·마감·토큰 검사는
+                    # 다음 반복에서 그대로 적용됩니다.
+                    if usage.report_repairs >= limits.max_report_repairs:
+                        raise _Stop(verdict.code, verdict.failures)
+                    usage.report_repairs += 1
+                    record("repair_requested", loop.time(), code=verdict.code, failures=len(verdict.failures))
+                    messages.append({"role": "user", "content": [_tool_result_block(
+                        submits[0]["id"], repair_request(verdict.failures), True)]})
+                    continue
                 result.rendered = {
                     "summary": report["summary"],
                     "findings": [{"kind": f["kind"], "text": render_statement(f["statement"], f["evidence"]),
