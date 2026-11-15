@@ -358,3 +358,34 @@ def test_cli_rejects_context_window_not_larger_than_max_tokens(monkeypatch, caps
     with pytest.raises(SystemExit) as exc:
         cli.main()
     assert exc.value.code == 2 and "context-window" in capsys.readouterr().err
+
+
+# ---------- 호출 ID 검증 (PR #29 재리뷰) ----------
+
+def _calls(*ids) -> dict:
+    return completion({"content": None, "tool_calls": [
+        {**tool_call("get_transaction_history", {"target_transaction_id": "high", "lookback_days": d}), "id": i}
+        for i, d in zip(ids, (7, 30, 60))]}, "tool_calls")
+
+
+@pytest.mark.parametrize("body", [_calls("dup", "dup"), _calls(7, "b"), _calls(["x"], "b")],
+                         ids=["duplicate", "int-id", "list-id"])
+def test_invalid_or_duplicate_call_ids_are_rejected(body):
+    with pytest.raises(OpenAIResponseError):
+        from_openai_response(body)
+
+
+def test_missing_ids_are_generated_unique():
+    content = from_openai_response(_calls(None, "", None))[0]
+    ids = [b["id"] for b in content]
+    assert len(set(ids)) == 3 and all(isinstance(i, str) and i for i in ids)
+
+
+async def test_duplicate_ids_stop_before_any_lookup_runs(db):
+    # Codex 재현: 7일·30일 조회에 같은 ID → 이전에는 둘 다 실행되고 결과 블록 두 개에 모두 30일 근거가 들어감
+    server = FakeServer(_calls("dup", "dup"), completion({"content": None, "tool_calls": [
+        tool_call("submit_report", high_report(), "call_s")]}, "tool_calls"))
+    r = await investigate("high", server.client(), lambda t: McpToolSession(t, db), "qwen", PROFILES["local"])
+    assert (r.outcome.status, r.outcome.reason) == ("incomplete", "MODEL_API_ERROR")
+    assert set(r.tool_results) == {"EV-TH-high-90d"}            # 추가 조회가 시작되지 않음
+    assert r.usage.tool_calls == 0 and len(server.chat_bodies()) == 1

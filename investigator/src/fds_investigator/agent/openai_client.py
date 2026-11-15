@@ -138,11 +138,25 @@ def from_openai_response(body: Any) -> tuple[list[dict[str, Any]], str, int, int
     if text:
         content.append({"type": "text", "text": text})
     # reasoning_content(생각 모드 출력)는 받지 않습니다. 내부 추론은 기록·표시하지 않는 원칙(docs/04 3절)
+    # 호출 ID는 응답 안에서 고유해야 합니다. 루프는 결과를 ID로 짝지어 돌려주므로(tool_result.tool_use_id),
+    # 같은 ID가 두 번 오면 서로 다른 조회 결과가 한 ID로 덮여 모델이 잘못된 근거를 받습니다(PR #29 재리뷰).
+    # 툴을 실행하기 전에 거부합니다. ID가 없거나 빈 문자열이면 기존 호환 동작대로 생성하되, 응답 안에서 고유하게 만듭니다.
+    seen: set[str] = set()
     for call in raw_calls or []:
         fn = call.get("function") if isinstance(call, dict) else None
         if not isinstance(fn, dict) or not isinstance(fn.get("name"), str):
             raise OpenAIResponseError("tool_calls[].function.name must be a string")
-        content.append({"type": "tool_use", "id": call.get("id") or f"call_{uuid.uuid4().hex[:12]}",
+        call_id = call.get("id")
+        if call_id is None or call_id == "":
+            call_id = f"call_{uuid.uuid4().hex[:12]}"
+            while call_id in seen:
+                call_id = f"call_{uuid.uuid4().hex[:12]}"
+        elif not isinstance(call_id, str):
+            raise OpenAIResponseError(f"tool_calls[].id must be a string, got {type(call_id).__name__}")
+        elif call_id in seen:
+            raise OpenAIResponseError(f"duplicate tool call id in one response: {call_id}")
+        seen.add(call_id)
+        content.append({"type": "tool_use", "id": call_id,
                         "name": fn["name"], "input": _parse_arguments(fn.get("arguments"))})
 
     finish = choice.get("finish_reason") or ""

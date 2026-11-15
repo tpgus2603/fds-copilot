@@ -153,7 +153,7 @@ OpenAI 호환 어댑터는 대화를 양방향으로 변환합니다(`tool_use`/
 
 **종료 사유 우선순위** (PR #29 리뷰): `length` → `max_tokens`, `content_filter` → `refusal`은 툴 호출이 들어 있어도 우선합니다. 잘린 응답의 툴 호출은 인자가 불완전할 수 있고, 필터에 걸린 응답은 실행하면 안 되기 때문입니다. 루프는 이 두 사유에서 조회와 제출을 모두 실행하지 않고 미완료로 끝냅니다. 툴 호출이 있는데 `finish_reason`이 `stop`인 서버도 있어, `stop`·`tool_calls`일 때만 툴 호출이 있으면 `tool_use`로 봅니다.
 
-**응답 구조 검증** (PR #29 리뷰): HTTP 200이어도 `choices`가 비었거나, `message`·`tool_calls`·`function.name`의 형식이 어긋나거나, `usage.prompt_tokens`·`completion_tokens`가 음이 아닌 정수가 아니거나, 본문이 JSON이 아니면 `OpenAIResponseError`입니다. 같은 요청을 다시 보내도 고쳐지지 않으므로 재시도하지 않고 `MODEL_API_ERROR`로 끝나며, 그때까지의 기록은 보존합니다. `usage`가 없으면 누적 입력 토큰 예산을 셀 수 없으므로 오류로 봅니다.
+**응답 구조 검증** (PR #29 리뷰): HTTP 200이어도 `choices`가 비었거나, `message`·`tool_calls`·`function.name`의 형식이 어긋나거나, `usage.prompt_tokens`·`completion_tokens`가 음이 아닌 정수가 아니거나, 본문이 JSON이 아니면 `OpenAIResponseError`입니다. 같은 요청을 다시 보내도 고쳐지지 않으므로 재시도하지 않고 `MODEL_API_ERROR`로 끝나며, 그때까지의 기록은 보존합니다. `usage`가 없으면 누적 입력 토큰 예산을 셀 수 없으므로 오류로 봅니다. 툴 호출 ID도 검증합니다(PR #29 재리뷰). 루프는 결과를 ID로 짝지어 돌려주므로, 한 응답 안에 같은 ID가 두 번 오면 서로 다른 조회 결과가 한 ID로 덮입니다. 중복 ID와 문자열이 아닌 ID는 툴을 실행하기 전에 `OpenAIResponseError`로 거부합니다. ID가 없거나 비어 있으면 응답 안에서 고유하게 생성합니다.
 
 **생각 모드 끄기는 서버마다 필드가 다릅니다** (`--backend`):
 
