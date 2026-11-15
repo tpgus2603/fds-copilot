@@ -46,8 +46,8 @@ async def test_baseline_then_submit_reports(db):
     assert r.outcome.status == "reported", r.outcome
     assert step_types(r)[:2] == ["tool_server_started", "baseline_tool_call"]
     assert set(r.tool_results) == {"EV-TH-high-90d"}
-    assert r.rendered["findings"][0]["text"] == "대상 금액이 [비교 기간 평균 대비 10.0배]이며 [비교 기간 최댓값 초과]입니다."
-    assert r.rendered["findings"][2]["text"] == "비교 표본이 [비교 기간 거래 5건]으로 최소 기준만 충족합니다."
+    assert r.rendered["findings"][0]["text"] == "대상 금액이 [90일 비교 기간 평균 대비 10.0배]이며 [90일 비교 기간 최댓값 초과]입니다."
+    assert r.rendered["findings"][2]["text"] == "비교 표본이 [90일 비교 기간 거래 5건]으로 최소 기준만 충족합니다."
     assert r.rendered["findings"][0]["evidence"][0] == f"{r.run_id}/EV-TH-high-90d#/stats/target_to_mean_ratio"
     assert r.usage.model_calls == 1 and r.usage.tool_calls == 0
     # 첫 요청에 시스템 프롬프트, 조회 툴 + submit_report, 기본 증거가 들어감

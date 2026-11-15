@@ -67,11 +67,28 @@ def renderer_for(path: str) -> Callable[[Any], str] | None:
     return None
 
 
+# 조회 기간에 따라 값이 달라지는 경로 (#36). /target/*(대상 거래 자체)와 /basis/*(기준 정보)는 제외합니다.
+PERIOD_SCOPED = ("/stats/", "/target_category/", "/category_distribution/", "/recent_transactions/")
+_PERIOD = re.compile(r"-([0-9]{1,3})d$")
+_SCOPE_WORD = "비교 기간"
+
+
+def render_evidence(ref: dict[str, Any]) -> str:
+    """근거 하나를 구절로 바꿉니다. 기간 의존 경로는 근거 ID의 조회 기간을 라벨에 붙입니다.
+
+    같은 보고서에 90일·365일 근거가 함께 있을 때 [비교 기간 평균 대비 …]만으로는 어느 기간의
+    값인지 구분할 수 없기 때문입니다(27B high 관찰). 기간은 모델 문장이 아니라 근거 ID에서 읽습니다.
+    """
+    fn = renderer_for(ref["path"])
+    assert fn is not None
+    text = fn(ref["value"])
+    m = _PERIOD.search(ref.get("evidence_id", ""))
+    if m and ref["path"].startswith(PERIOD_SCOPED):
+        scope = f"{int(m.group(1))}일 {_SCOPE_WORD}"
+        text = text.replace(_SCOPE_WORD, scope, 1) if _SCOPE_WORD in text else f"{scope} {text}"
+    return text
+
+
 def render_statement(statement: str, evidence: list[dict[str, Any]]) -> str:
     """검증(V3·V5)을 통과한 문장의 자리표시자를 [라벨 값]으로 채웁니다."""
-    def repl(m: re.Match[str]) -> str:
-        ref = evidence[int(m.group(1))]
-        fn = renderer_for(ref["path"])
-        assert fn is not None
-        return f"[{fn(ref['value'])}]"
-    return PLACEHOLDER.sub(repl, statement)
+    return PLACEHOLDER.sub(lambda m: f"[{render_evidence(evidence[int(m.group(1))])}]", statement)
