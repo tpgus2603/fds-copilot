@@ -392,3 +392,15 @@ async def test_model_may_look_up_more_evidence_after_repair_request(db):
 async def test_no_submission_leaves_first_pass_unknown(db):
     r = await run(db, FakeModel(text("생각 중"), text("아직")))
     assert r.outcome.reason == "NO_REPORT" and r.first_submission_ok is None
+
+
+async def test_repair_request_lists_all_failures_and_asks_for_targeted_fix(db):
+    # 요약 숫자 + 근거 미참조가 한 번에 전달되어야 함 (27B r1: 요약 오류만 전달 → 다른 곳에서 재실패)
+    bad = _no_placeholder()
+    bad["summary"] = "평균의 10배입니다."
+    model = FakeModel(respond(submit(bad)), respond(submit(high_report())))
+    r = await run(db, model)
+    assert r.outcome.status == "reported"
+    payload = json.loads(model.requests[1].messages[-1]["content"][0]["content"])
+    assert {f["code"] for f in payload["failures"]} == {"REPORT_SCHEMA_INVALID", "EVIDENCE_NOT_REFERENCED"}
+    assert "위치만 고치고" in payload["error"]["message"]

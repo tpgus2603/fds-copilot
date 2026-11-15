@@ -90,6 +90,13 @@ def resolve_pointer(doc: Any, pointer: str) -> Any:
     return cur
 
 
+def _is_text_pattern_error(e: Any) -> bool:
+    """요약·문장 문자열의 pattern 위반만 참. 이런 위반은 보고서 구조를 깨지 않습니다."""
+    path = list(e.path)
+    is_text = path == ["summary"] or (len(path) == 3 and path[0] == "findings" and path[2] == "statement")
+    return e.validator == "pattern" and is_text
+
+
 def verify_report(report: Any, snapshots: dict[str, dict]) -> VerificationResult:
     failures: list[dict[str, str]] = []
 
@@ -98,9 +105,12 @@ def verify_report(report: Any, snapshots: dict[str, dict]) -> VerificationResult
 
     # V1: 스키마 + 숫자 문자 금지 (유니코드 숫자 범주 전체)
     errors = list(Draft202012Validator(report_schema()).iter_errors(report))
-    if errors:
-        for e in errors[:5]:
-            fail("REPORT_SCHEMA_INVALID", "/" + "/".join(map(str, e.path)), e.message[:200])
+    for e in errors[:5]:
+        fail("REPORT_SCHEMA_INVALID", "/" + "/".join(map(str, e.path)), e.message[:200])
+    # 문장·요약의 문자 패턴 위반(숫자·자리표시자)은 구조 오류가 아니므로 V2~V10을 계속 검사해 실패를 모두 모읍니다.
+    # 첫 실패에서 멈추면 수정 요청(4.4)이 일부 위치만 알려 주게 되고, 모델이 그것만 고친 뒤 다음 검증에서
+    # 처음부터 있던 다른 실패로 다시 떨어집니다(27B r1 관찰). 구조 오류는 이후 검사가 전제를 잃으므로 멈춥니다.
+    if any(not _is_text_pattern_error(e) for e in errors):
         return VerificationResult(False, "REPORT_SCHEMA_INVALID", failures)
     if chars := numeric_chars(report["summary"], allow_placeholders=False):
         fail("REPORT_SCHEMA_INVALID", "/summary", f"숫자 문자 {chars[:3]}")
