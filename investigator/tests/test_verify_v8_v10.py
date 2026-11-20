@@ -232,3 +232,19 @@ def test_placeholders_in_summary_are_reported_with_the_rest(snaps):
 def test_structural_errors_still_stop_early(snaps, rep):
     r = verify_report(rep, snaps)
     assert not r.ok and {x["code"] for x in r.failures} == {"REPORT_SCHEMA_INVALID"}
+
+
+
+def test_structural_error_is_listed_first_even_with_many_pattern_errors(snaps):
+    # Codex 재현: 패턴 위반 7개 뒤의 evidence 누락이 errors[:5]에서 잘려 모델에 전달되지 않음
+    findings = [f("suspicion", f"문장 {i}입니다 {{0}}", ev(H90, EXCEEDS, True)) for i in range(6)]
+    findings.append({"kind": "gap", "statement": "근거 필드 누락"})
+    rep = report(*findings, summary="요약 1")
+    r = verify_report(rep, snaps)
+    first = r.failures[0]
+    assert first["where"] == "/findings/6" and "evidence" in first["detail"]
+    assert len(r.failures) <= 11
+    total_pattern = 7
+    shown = sum(1 for x in r.failures if x["where"].endswith("/statement") or x["where"] == "/summary")
+    omitted = [x for x in r.failures if x["where"] == ""]
+    assert shown + (int(omitted[0]["detail"].split()[3][:-1]) if omitted else 0) == total_pattern

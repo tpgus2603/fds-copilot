@@ -5,6 +5,7 @@
 """
 
 import json
+import re
 from typing import Any
 
 from .render import CATALOG, render_statement
@@ -100,11 +101,49 @@ def initial_user_message(target_transaction_id: str, baseline: dict[str, Any]) -
 NUDGE = "조사를 마쳤다면 submit_report 하나만 호출해 보고서를 제출하십시오."
 
 
+# 모델에 돌려주는 실패 안내 (PR #39 리뷰). 검증기의 detail은 모델이 쓴 문장·값이나 툴 결과 값을 인용하므로
+# 감사 기록(실행 기록의 verification 단계)에만 남기고, 모델에게는 코드·위치·아래 고정 문구만 보냅니다.
+# 모델이 쓴 문자열이 피드백으로 되돌아가 다음 프롬프트의 일부가 되는 경로를 없애기 위해서입니다.
+FAILURE_HINTS: dict[str, str] = {
+    "REPORT_SCHEMA_INVALID": "보고서 형식 위반입니다. 필수 필드·허용 값을 확인하십시오.",
+    "EVIDENCE_NOT_FOUND": "이번 조사에서 받은 결과에 없는 evidence_id입니다.",
+    "EVIDENCE_PATH_INVALID": "인용할 수 없는 경로입니다. 규칙 9번의 경로 목록에서 고르십시오.",
+    "EVIDENCE_VALUE_MISMATCH": "인용한 값이 그 경로의 툴 결과 값과 다릅니다. 툴 결과를 다시 확인하십시오.",
+    "PLACEHOLDER_INVALID": "문장의 자리표시자 번호가 그 발견 사항의 evidence 범위를 벗어납니다.",
+    "ERROR_RESULT_CITED": "오류 결과는 suspicion·counter의 근거가 될 수 없습니다. gap으로 쓰십시오.",
+    "NUMBER_WORD_USED": "수량을 나타내는 한글 표현(두 배, 절반 등)을 쓰지 마십시오.",
+    "EVIDENCE_NOT_REFERENCED": "이 근거가 문장에서 자리표시자로 가리켜지지 않았습니다.",
+    "MIXED_LOOKBACK": "한 발견 사항에 서로 다른 조회 기간의 근거가 섞였습니다. 기간별로 나누십시오.",
+    "POLARITY_CONFLICT": "이 근거 값의 방향이 발견 사항의 kind와 반대입니다.",
+    "SPARSE_HISTORY_DIRECTION": "비교 이력이 비었거나 부족한 결과의 이력 값은 gap에서만 인용할 수 있습니다.",
+}
+_TEXT_HINTS = {
+    "/summary": "요약에는 숫자, 날짜, 시각, 자리표시자를 쓸 수 없습니다.",
+    "statement": "문장에는 숫자, 날짜, 시각을 직접 쓸 수 없습니다. 값은 자리표시자로 가리키십시오.",
+}
+_EVIDENCE_WHERE = re.compile(r"^/findings/[0-9]+/evidence/([0-9]+)$")
+
+
+def _model_failure(f: dict[str, Any]) -> dict[str, str]:
+    code, where = f["code"], f["where"]
+    hint = FAILURE_HINTS[code]
+    if code == "REPORT_SCHEMA_INVALID":
+        if where == "/summary":
+            hint = _TEXT_HINTS["/summary"]
+        elif where.endswith("/statement"):
+            hint = _TEXT_HINTS["statement"]
+        elif where == "":
+            hint = "그 밖의 형식 위반이 더 있습니다. 보고서 전체 형식을 확인하십시오."
+    elif code == "EVIDENCE_NOT_REFERENCED" and (m := _EVIDENCE_WHERE.match(where)):
+        hint = f"이 근거를 문장에서 {{{m.group(1)}}}로 가리키거나, 필요 없으면 빼십시오."
+    return {"code": code, "where": where, "hint": hint}
+
+
 def repair_request(failures: list[dict[str, Any]]) -> dict[str, Any]:
     """검증 실패 보고서에 대한 수정 요청 (docs/04 4.4, #38).
 
-    실패 위치와 사유만 돌려주고 고친 문장을 제안하지 않습니다. 검증기가 대신 써 준 보고서가 되지 않게 하고,
-    무엇을 고칠지는 모델이 근거를 다시 보고 판단하게 하기 위해서입니다.
+    실패 코드·위치·고정 안내만 돌려주고 고친 문장을 제안하지 않습니다. 검증기가 대신 써 준 보고서가 되지 않게
+    하고, 무엇을 고칠지는 모델이 근거를 다시 보고 판단하게 하기 위해서입니다.
     """
     return {
         "status": "rejected",
@@ -113,5 +152,5 @@ def repair_request(failures: list[dict[str, Any]]) -> dict[str, Any]:
                              "문장은 그대로 두십시오. 고친 뒤 submit_report 하나만 호출해 보고서 전체를 다시 "
                              "제출하십시오. 근거가 문장과 맞지 않으면 문장이나 근거를 고치거나 그 근거를 빼십시오. "
                              "다시 실패하면 조사는 미완료로 끝납니다."},
-        "failures": failures,
+        "failures": [_model_failure(f) for f in failures],
     }

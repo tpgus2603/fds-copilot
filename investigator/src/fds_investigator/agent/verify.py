@@ -61,6 +61,13 @@ def _polarity_conflict(kind: str, path: str, value: Any, snap: dict) -> str | No
     return None
 
 
+MAX_SCHEMA_FAILURES = 10
+# 대표 코드 우선순위 (V1~V7을 앞에 두어 기존 지표와 비교 가능하게 유지)
+FAILURE_CODES = ["REPORT_SCHEMA_INVALID", "EVIDENCE_NOT_FOUND", "EVIDENCE_PATH_INVALID", "EVIDENCE_VALUE_MISMATCH",
+                 "PLACEHOLDER_INVALID", "ERROR_RESULT_CITED", "NUMBER_WORD_USED",
+                 "EVIDENCE_NOT_REFERENCED", "MIXED_LOOKBACK", "POLARITY_CONFLICT", "SPARSE_HISTORY_DIRECTION"]
+
+
 def report_schema() -> dict:
     return json.loads(_SCHEMA_PATH.read_text(encoding="utf-8"))
 
@@ -105,12 +112,18 @@ def verify_report(report: Any, snapshots: dict[str, dict]) -> VerificationResult
 
     # V1: 스키마 + 숫자 문자 금지 (유니코드 숫자 범주 전체)
     errors = list(Draft202012Validator(report_schema()).iter_errors(report))
-    for e in errors[:5]:
+    # 검사를 멈추게 하는 구조 오류를 앞에 둡니다. 상한을 넘으면 생략 수를 남겨, 한 번뿐인 수정 요청에서
+    # 실제 중단 원인이 잘려 나가지 않게 합니다 (PR #39 리뷰).
+    structural = [e for e in errors if not _is_text_pattern_error(e)]
+    ordered = structural + [e for e in errors if _is_text_pattern_error(e)]
+    for e in ordered[:MAX_SCHEMA_FAILURES]:
         fail("REPORT_SCHEMA_INVALID", "/" + "/".join(map(str, e.path)), e.message[:200])
+    if len(ordered) > MAX_SCHEMA_FAILURES:
+        fail("REPORT_SCHEMA_INVALID", "", f"그 밖의 스키마 위반 {len(ordered) - MAX_SCHEMA_FAILURES}건 생략")
     # 문장·요약의 문자 패턴 위반(숫자·자리표시자)은 구조 오류가 아니므로 V2~V10을 계속 검사해 실패를 모두 모읍니다.
     # 첫 실패에서 멈추면 수정 요청(4.4)이 일부 위치만 알려 주게 되고, 모델이 그것만 고친 뒤 다음 검증에서
     # 처음부터 있던 다른 실패로 다시 떨어집니다(27B r1 관찰). 구조 오류는 이후 검사가 전제를 잃으므로 멈춥니다.
-    if any(not _is_text_pattern_error(e) for e in errors):
+    if structural:
         return VerificationResult(False, "REPORT_SCHEMA_INVALID", failures)
     if chars := numeric_chars(report["summary"], allow_placeholders=False):
         fail("REPORT_SCHEMA_INVALID", "/summary", f"숫자 문자 {chars[:3]}")
@@ -174,8 +187,5 @@ def verify_report(report: Any, snapshots: dict[str, dict]) -> VerificationResult
 
     if not failures:
         return VerificationResult(True)
-    order = ["REPORT_SCHEMA_INVALID", "EVIDENCE_NOT_FOUND", "EVIDENCE_PATH_INVALID", "EVIDENCE_VALUE_MISMATCH",
-             "PLACEHOLDER_INVALID", "ERROR_RESULT_CITED", "NUMBER_WORD_USED",
-             "EVIDENCE_NOT_REFERENCED", "MIXED_LOOKBACK", "POLARITY_CONFLICT", "SPARSE_HISTORY_DIRECTION"]
-    first = min(failures, key=lambda x: order.index(x["code"]))
+    first = min(failures, key=lambda x: FAILURE_CODES.index(x["code"]))
     return VerificationResult(False, first["code"], failures)
