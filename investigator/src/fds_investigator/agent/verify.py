@@ -34,6 +34,19 @@ _CATEGORY_SHARE = re.compile(r"^/category_distribution/[0-9]{1,2}/category$")
 _EVIDENCE_ID = re.compile(r"^(EV-[A-Z]{2}-[A-Za-z0-9]{1,64})-([0-9]{1,3})d$")
 
 
+# V9 보강 (PR #31 리뷰): 비교 이력이 없거나(empty) 최소 표본 미만(insufficient)이면, 이력에서 나온 값은
+# 방향(의심/정상)을 정하지 못합니다. 예: 이력이 비어 seen_before=false인 것은 "처음 쓰는 업종"이 아니라
+# "확인할 이력이 없음"입니다. 이런 결과의 이력 기반 필드는 gap에서만 인용할 수 있습니다.
+SPARSE_STATUSES = ("empty", "insufficient")
+HISTORY_FIELDS = ("/stats/", "/target_category/", "/category_distribution/", "/recent_transactions/")
+
+
+def _sparse_history_direction(kind: str, path: str, snap: dict) -> str | None:
+    if kind in ("suspicion", "counter") and snap.get("status") in SPARSE_STATUSES and path.startswith(HISTORY_FIELDS):
+        return f"비교 이력이 {snap['status']}인 결과의 {path}는 {kind}의 근거가 될 수 없습니다(gap으로만 인용)"
+    return None
+
+
 def _polarity_conflict(kind: str, path: str, value: Any, snap: dict) -> str | None:
     """V9 (휴리스틱): 인용한 값의 방향이 발견 사항의 kind와 반대이면 그 이유를 돌려줍니다. gap은 검사하지 않습니다."""
     if kind not in ("suspicion", "counter"):
@@ -127,7 +140,11 @@ def verify_report(report: Any, snapshots: dict[str, dict]) -> VerificationResult
         # V9
         for j, ref in enumerate(f["evidence"]):
             snap = snapshots.get(ref["evidence_id"])
-            if snap is not None and (why := _polarity_conflict(f["kind"], ref["path"], ref["value"], snap)):
+            if snap is None:
+                continue
+            if why := _sparse_history_direction(f["kind"], ref["path"], snap):
+                fail("SPARSE_HISTORY_DIRECTION", f"/findings/{i}/evidence/{j}", why)
+            elif why := _polarity_conflict(f["kind"], ref["path"], ref["value"], snap):
                 fail("POLARITY_CONFLICT", f"/findings/{i}/evidence/{j}", why)
         # V10: 같은 툴·대상의 서로 다른 조회 기간을 한 발견 사항에 섞지 않음
         periods: dict[str, set[str]] = {}
@@ -149,6 +166,6 @@ def verify_report(report: Any, snapshots: dict[str, dict]) -> VerificationResult
         return VerificationResult(True)
     order = ["REPORT_SCHEMA_INVALID", "EVIDENCE_NOT_FOUND", "EVIDENCE_PATH_INVALID", "EVIDENCE_VALUE_MISMATCH",
              "PLACEHOLDER_INVALID", "ERROR_RESULT_CITED", "NUMBER_WORD_USED",
-             "EVIDENCE_NOT_REFERENCED", "MIXED_LOOKBACK", "POLARITY_CONFLICT"]
+             "EVIDENCE_NOT_REFERENCED", "MIXED_LOOKBACK", "POLARITY_CONFLICT", "SPARSE_HISTORY_DIRECTION"]
     first = min(failures, key=lambda x: order.index(x["code"]))
     return VerificationResult(False, first["code"], failures)

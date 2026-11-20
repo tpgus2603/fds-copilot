@@ -309,6 +309,7 @@ OpenAI 호환 어댑터는 대화를 양방향으로 변환합니다(`tool_use`/
 | V7 | 문장·요약에 수량을 나타내는 한글 표현이 없음 (예: 두 배, 절반, 열 건) | `NUMBER_WORD_USED` |
 | V8 | 발견 사항의 **모든** `evidence[i]`가 문장에 `{i}`로 나타남. 문장에 드러나지 않는 근거는 조사역이 어떤 값이 근거인지 확인할 수 없음 (#30) | `EVIDENCE_NOT_REFERENCED` |
 | V9 | 방향이 정해진 근거의 값이 `kind`와 맞음 (휴리스틱, gap 제외): `target_exceeds_max` true는 suspicion·false는 counter, `target_category/seen_before` false는 suspicion·true는 counter, counter는 대상 업종과 **다른** `category_distribution/N/category`를 인용할 수 없음 (#30) | `POLARITY_CONFLICT` |
+| V9 보강 | 근거 결과의 `status`가 `empty`·`insufficient`이면 이력 기반 필드(`/stats/*`, `/target_category/*`, `/category_distribution/*`, `/recent_transactions/*`)는 suspicion·counter에 인용할 수 없고 gap에서만 인용 (PR #31 리뷰). 이력이 비어 `seen_before=false`인 것은 "처음 쓰는 업종"이 아니라 "확인할 이력 없음"이기 때문입니다. `/target/*`는 대상 거래 자체라 제한하지 않습니다 | `SPARSE_HISTORY_DIRECTION` |
 | V10 | 한 발견 사항 안에서 같은 툴·같은 대상의 서로 다른 조회 기간(`-90d`, `-365d`) 근거를 섞지 않음. 기간마다 값의 의미가 달라 한 문장의 근거로 묶으면 해석이 섞임 (#30) | `MIXED_LOOKBACK` |
 
 **검증의 범위와 한계**
