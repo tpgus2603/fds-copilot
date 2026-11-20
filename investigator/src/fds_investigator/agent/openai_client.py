@@ -34,10 +34,14 @@ TERMINAL_FINISH = {"length", "content_filter"}
 #   reasoning_effort:     Ollama /v1 (켜고 끄기만 되는 모델에서 "none"은 생각 끔)
 #   none:                 아무것도 보내지 않음 (모델 기본값)
 THINKING_CONTROLS = ("chat_template_kwargs", "reasoning_effort", "none")
-BACKENDS = {  # --backend 값 → (생각 끄기 방식, 기본 토큰 산정 방식)
-    "llama_cpp": ("chat_template_kwargs", "llama_cpp"),
-    "ollama": ("reasoning_effort", "estimate"),
-    "generic": ("none", "estimate"),
+# --backend 값 → (생각 끄기 방식, 기본 토큰 산정 방식, 기본 샘플링 프리셋, 기본 parallel_tool_calls)
+# 확장 필드(top_k, min_p)와 parallel_tool_calls는 실제로 확인한 llama.cpp에서만 기본으로 보냅니다.
+# Ollama /v1과 그 밖의 호환 서버는 이 필드를 지원 목록에 명시하지 않으므로 기본은 아무것도 보내지 않고(server, None),
+# 필요하면 --sampling으로 명시 선택합니다 (PR #33 리뷰).
+BACKENDS: dict[str, tuple[str, str, str, bool | None]] = {
+    "llama_cpp": ("chat_template_kwargs", "llama_cpp", "qwen-instruct", False),
+    "ollama": ("reasoning_effort", "estimate", "server", None),
+    "generic": ("none", "estimate", "server", None),
 }
 
 
@@ -189,7 +193,8 @@ class OpenAICompatibleModelClient:
     thinking_control: str = "chat_template_kwargs"   # THINKING_CONTROLS 중 하나 (BACKENDS 참고)
     sampling: str = "server"                         # SAMPLING_PRESETS 중 하나
     # 한 응답에 툴 호출 하나만. 루프는 한 번에 하나씩 조회하고, 제출은 단독 호출이어야 하므로 병렬이 필요 없습니다.
-    parallel_tool_calls: bool = False
+    # None이면 필드를 보내지 않습니다 (지원하지 않는 호환 서버용).
+    parallel_tool_calls: bool | None = False
     token_count: str = "llama_cpp"        # "llama_cpp": 서버 토크나이저로 산정 / "estimate": 문자 수로 보수적 추정
     api_key: str | None = None            # 내부 추론 서버가 인증을 요구할 때만
     max_retries: int = MAX_RETRIES
@@ -205,8 +210,11 @@ class OpenAICompatibleModelClient:
 
     @classmethod
     def for_backend(cls, backend: str, base_url: str, **kw: Any) -> "OpenAICompatibleModelClient":
-        thinking_control, token_count = BACKENDS[backend]
+        thinking_control, token_count, sampling, parallel = BACKENDS[backend]
         kw.setdefault("token_count", token_count)
+        if kw.get("sampling") is None:
+            kw["sampling"] = sampling
+        kw.setdefault("parallel_tool_calls", parallel)
         return cls(base_url, thinking_control=thinking_control, **kw)
 
     def _headers(self) -> dict[str, str]:
@@ -226,7 +234,8 @@ class OpenAICompatibleModelClient:
             body["max_tokens"] = request.max_tokens
             # 생성 요청에만 붙입니다. 토큰 산정(/apply-template)에는 영향이 없습니다.
             body.update(SAMPLING_PRESETS[self.sampling])
-            body["parallel_tool_calls"] = self.parallel_tool_calls
+            if self.parallel_tool_calls is not None:
+                body["parallel_tool_calls"] = self.parallel_tool_calls
         if self.disable_thinking:
             if self.thinking_control == "chat_template_kwargs":
                 body["chat_template_kwargs"] = {"enable_thinking": False}

@@ -418,3 +418,34 @@ async def test_server_preset_sends_no_sampling_fields():
 def test_unknown_sampling_preset_is_rejected():
     with pytest.raises(ValueError):
         OpenAICompatibleModelClient(BASE, sampling="greedy")
+
+
+
+# ---------- 백엔드별 샘플링 기본값 (PR #33 리뷰) ----------
+
+EXT_FIELDS = {"temperature", "top_p", "top_k", "min_p", "presence_penalty", "parallel_tool_calls"}
+
+
+@pytest.mark.parametrize("backend", ["generic", "ollama"])
+async def test_non_llamacpp_backends_send_no_extension_fields_by_default(backend):
+    server = FakeServer(completion({"content": "끝"}, "stop"))
+    client = _backend_client(server, backend)
+    await client.create(ModelRequest("q", "s", TOOLS, MESSAGES, 10), 10)
+    assert not EXT_FIELDS & server.chat_bodies()[0].keys()
+    assert (client.sampling, client.parallel_tool_calls) == ("server", None)
+
+
+async def test_llamacpp_backend_defaults_to_verified_qwen_preset():
+    server = FakeServer(completion({"content": "끝"}, "stop"))
+    client = _backend_client(server, "llama_cpp")
+    await client.create(ModelRequest("q", "s", TOOLS, MESSAGES, 10), 10)
+    body = server.chat_bodies()[0]
+    assert body["top_k"] == 20 and body["parallel_tool_calls"] is False
+
+
+async def test_explicit_preset_is_honored_on_generic_backend():
+    server = FakeServer(completion({"content": "끝"}, "stop"))
+    client = _backend_client(server, "generic", sampling="qwen-instruct", parallel_tool_calls=False)
+    await client.create(ModelRequest("q", "s", TOOLS, MESSAGES, 10), 10)
+    body = server.chat_bodies()[0]
+    assert body["top_k"] == 20 and body["parallel_tool_calls"] is False

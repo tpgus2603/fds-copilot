@@ -35,8 +35,8 @@ def main() -> None:
                    help="OpenAI 호환 서버 종류. 생각 모드 끄기 필드와 기본 토큰 산정 방식을 정합니다")
     p.add_argument("--token-count", choices=["llama_cpp", "estimate"],
                    help="토큰 산정 방식 (기본: llama_cpp 백엔드는 서버 토크나이저, 그 밖은 estimate 최선 노력 추정)")
-    p.add_argument("--sampling", choices=sorted(SAMPLING_PRESETS), default=os.environ.get("FDS_SAMPLING", "qwen-instruct"),
-                   help="샘플링 프리셋 (server: 서버 기본값, qwen-instruct: Qwen3.5 비사고 모드 권장값)")
+    p.add_argument("--sampling", choices=sorted(SAMPLING_PRESETS), default=os.environ.get("FDS_SAMPLING"),
+                   help="샘플링 프리셋 (기본: llama_cpp 백엔드는 qwen-instruct, 그 밖은 server = 아무것도 보내지 않음)")
     p.add_argument("--context-window", type=int,
                    help="요청당 컨텍스트 창 (토큰). 서버의 컨텍스트 길이(llama-server -c, Ollama num_ctx)와 같게 맞춥니다")
     p.add_argument("--db", default=os.environ.get("FDS_DB_PATH"))
@@ -73,7 +73,7 @@ def main() -> None:
     data["provider"], data["profile"] = a.provider, profile
     if a.provider == "openai":
         data["backend"], data["token_count"] = a.backend, client.token_count
-        data["sampling"] = {"preset": a.sampling, **SAMPLING_PRESETS[a.sampling],
+        data["sampling"] = {"preset": client.sampling, **SAMPLING_PRESETS[client.sampling],
                             "parallel_tool_calls": client.parallel_tool_calls}
         data["context_window"] = limits.context_window
     if a.out:
