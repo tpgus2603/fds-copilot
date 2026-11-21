@@ -21,9 +21,20 @@ from . import contracts
 from .config import Settings
 from .errors import ConfigError, ErrorCode
 from .repository import SqliteTransactionRepository, TransactionRepository
-from .service import error_result, get_transaction_history
+from .service import compute_geo_anomaly, error_result, get_transaction_history
 
 log = logging.getLogger("fds_investigator.server")
+
+GEO_DESCRIPTION = (
+    "대상 거래가 직전 거래나 고객 거주지와 지리적으로 맞지 않는지 확인할 때 사용합니다.\n"
+    "같은 카드의 직전 거래(기본 30일, lookback_days로 1~90일)를 찾아 두 결제가 일어난 가맹점 사이 거리(km),\n"
+    "경과 시간(분), 그 시간에 그 거리를 가려면 필요한 속도(km/h)와 기준 속도(900km/h) 초과 여부를 돌려주고,\n"
+    "거주지와 대상 가맹점 사이 거리와 기준(300km) 초과 여부를 돌려줍니다.\n"
+    "거리는 가맹점 좌표 사이의 거리이며 고객의 실제 위치가 아닙니다. 거주지 좌표는 결과에 포함되지 않습니다.\n"
+    "status가 insufficient이면 조회 기간에 직전 거래가 없거나 좌표가 없어 속도를 계산하지 못한 것입니다.\n"
+    "결과의 수치를 인용할 때는 evidence_id를 함께 적으십시오."
+)
+HANDLERS = {contracts.TOOL_NAME: get_transaction_history, contracts.GEO_TOOL: compute_geo_anomaly}
 
 DESCRIPTION = (
     "대상 거래의 금액이나 업종이 이 카드의 평소 이용 패턴과 다른지 확인할 때 사용합니다.\n"
@@ -37,12 +48,12 @@ DESCRIPTION = (
 )
 
 
-def to_call_result(result: dict) -> types.CallToolResult:
+def to_call_result(result: dict, tool: str = contracts.TOOL_NAME) -> types.CallToolResult:
     """출력 계약을 검증한 뒤 MCP 결과로 변환합니다. content는 structuredContent의 직렬화입니다(명세 3.9)."""
-    violations = list(contracts.output_validator().iter_errors(result))
+    violations = list(contracts.output_validator(tool).iter_errors(result))
     if violations:
-        log.error("output contract violation: %s", [v.message for v in violations[:3]])
-        result = error_result(ErrorCode.INTERNAL)
+        log.error("output contract violation (%s): %s", tool, [v.message for v in violations[:3]])
+        result = error_result(ErrorCode.INTERNAL, tool=tool)
     text = json.dumps(result, ensure_ascii=False, indent=2)
     return types.CallToolResult(
         content=[types.TextContent(type="text", text=text)],
@@ -56,25 +67,25 @@ def build_server(settings: Settings, repo: TransactionRepository) -> Server:
 
     @server.list_tools()
     async def list_tools() -> list[types.Tool]:
+        descriptions = {contracts.TOOL_NAME: DESCRIPTION, contracts.GEO_TOOL: GEO_DESCRIPTION}
         return [
             types.Tool(
-                name=contracts.TOOL_NAME,
-                description=DESCRIPTION,
-                inputSchema=contracts.load_schema("input"),
-                outputSchema=contracts.load_schema("output"),
+                name=name,
+                description=descriptions[name],
+                inputSchema=contracts.load_schema("input", name),
+                outputSchema=contracts.load_schema("output", name),
             )
+            for name in contracts.TOOL_NAMES
         ]
 
     @server.call_tool(validate_input=False)
     async def call_tool(name: str, arguments: dict | None) -> types.CallToolResult:
         try:
-            result = await get_transaction_history(
-                arguments, settings.allowlist, repo, settings.query_timeout_seconds
-            )
+            result = await HANDLERS[name](arguments, settings.allowlist, repo, settings.query_timeout_seconds)
         except Exception:
             log.exception("unhandled error in tool handler")
-            result = error_result(ErrorCode.INTERNAL)
-        return to_call_result(result)
+            result = error_result(ErrorCode.INTERNAL, tool=name)
+        return to_call_result(result, name)
 
     _reject_unknown_tools_as_protocol_errors(server)
     return server
@@ -90,7 +101,7 @@ def _reject_unknown_tools_as_protocol_errors(server: Server) -> None:
     inner = server.request_handlers[types.CallToolRequest]
 
     async def handler(req: types.CallToolRequest):
-        if req.params.name != contracts.TOOL_NAME:
+        if req.params.name not in HANDLERS:
             raise McpError(types.ErrorData(code=types.INVALID_PARAMS, message=f"Unknown tool: {req.params.name}"))
         return await inner(req)
 

@@ -44,7 +44,7 @@ async def test_tools_list_exposes_contract(db):
     async with stdio_client(params(db, "target1")) as (r, w), ClientSession(r, w) as s:
         await s.initialize()
         tools = (await s.list_tools()).tools
-        assert [t.name for t in tools] == ["get_transaction_history"]
+        assert [t.name for t in tools] == ["get_transaction_history", "compute_geo_anomaly"]
         assert tools[0].inputSchema["properties"]["lookback_days"]["maximum"] == 365
         assert tools[0].outputSchema is not None
 

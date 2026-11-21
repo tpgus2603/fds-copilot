@@ -7,7 +7,9 @@ from pathlib import Path
 
 from jsonschema import Draft202012Validator
 
-TOOL_NAME = "get_transaction_history"
+TOOL_NAME = "get_transaction_history"   # 기본 툴 (이전 호출부 호환)
+GEO_TOOL = "compute_geo_anomaly"
+TOOL_NAMES = (TOOL_NAME, GEO_TOOL)
 
 
 def contracts_dir() -> Path:
@@ -19,20 +21,20 @@ def contracts_dir() -> Path:
 
 
 @cache
-def load_schema(kind: str) -> dict:
-    path = contracts_dir() / f"{TOOL_NAME}.{kind}.schema.json"
+def load_schema(kind: str, tool: str = TOOL_NAME) -> dict:
+    path = contracts_dir() / f"{tool}.{kind}.schema.json"
     return json.loads(path.read_text(encoding="utf-8"))
 
 
 @cache
-def input_validator() -> Draft202012Validator:
-    return Draft202012Validator(load_schema("input"))
+def input_validator(tool: str = TOOL_NAME) -> Draft202012Validator:
+    return Draft202012Validator(load_schema("input", tool))
 
 
 @cache
-def output_validator() -> Draft202012Validator:
-    return Draft202012Validator(load_schema("output"))
+def output_validator(tool: str = TOOL_NAME) -> Draft202012Validator:
+    return Draft202012Validator(load_schema("output", tool))
 
 
-def schema_version() -> str:
-    return load_schema("output")["properties"]["schema_version"]["const"]
+def schema_version(tool: str = TOOL_NAME) -> str:
+    return load_schema("output", tool)["properties"]["schema_version"]["const"]

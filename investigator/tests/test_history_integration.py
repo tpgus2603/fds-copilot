@@ -104,10 +104,11 @@ def assert_expected(payload: dict, expected: dict) -> None:
 async def test_fixture_history_over_stdio(db):
     async with session_for(db) as session:
         tools = (await session.list_tools()).tools
-        assert [tool.name for tool in tools] == [TOOL]
-        for suffix, published in [("input", tools[0].inputSchema), ("output", tools[0].outputSchema)]:
-            contract = ROOT / "contracts" / "mcp" / f"{TOOL}.{suffix}.schema.json"
-            assert published == json.loads(contract.read_text(encoding="utf-8"))
+        assert [tool.name for tool in tools] == [TOOL, "compute_geo_anomaly"]
+        for tool in tools:
+            for suffix, published in [("input", tool.inputSchema), ("output", tool.outputSchema)]:
+                contract = ROOT / "contracts" / "mcp" / f"{tool.name}.{suffix}.schema.json"
+                assert published == json.loads(contract.read_text(encoding="utf-8"))
         # 하나의 프로세스에서 조회하되, 실패 시 어떤 fixture가 깨졌는지 표시합니다.
         for name, case in CASES.items():
             result = await session.call_tool(TOOL, case["arguments"])

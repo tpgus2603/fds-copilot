@@ -30,7 +30,10 @@ CREATE TABLE IF NOT EXISTS transactions (
     trans_at       TEXT NOT NULL,   -- YYYY-MM-DDTHH:MM:SS, 시간대 없음
     amount         TEXT NOT NULL,   -- 10진수 문자열
     category       TEXT NOT NULL,
-    merchant_name  TEXT NOT NULL
+    merchant_name  TEXT NOT NULL,
+    merch_lat      REAL,            -- 가맹점 좌표 (없으면 NULL)
+    merch_long     REAL,
+    home_distance_km TEXT           -- 거주지-가맹점 거리(km, 10진수 문자열). 거주지 좌표 자체는 저장하지 않음
 );
 CREATE INDEX IF NOT EXISTS ix_transactions_card_time ON transactions (card_token, trans_at);
 """
@@ -44,6 +47,9 @@ def _row_to_txn(row: sqlite3.Row) -> Transaction:
         amount=Decimal(row["amount"]),
         category=row["category"],
         merchant_name=row["merchant_name"],
+        merch_lat=row["merch_lat"],
+        merch_long=row["merch_long"],
+        home_distance_km=None if row["home_distance_km"] is None else Decimal(row["home_distance_km"]),
     )
 
 

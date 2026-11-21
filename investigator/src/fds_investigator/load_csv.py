@@ -17,9 +17,12 @@ from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 
+from .geo import haversine_km, store_km
 from .repository import SCHEMA_SQL, TS_FORMAT
 
 REQUIRED = ("trans_date_trans_time", "cc_num", "merchant", "category", "amt", "trans_num")
+# 선택 컬럼: 가맹점 좌표(merch_lat, merch_long)와 고객 거주지 좌표(lat, long). 거주지 좌표는 거리 계산에만 쓰고
+# 저장하지 않습니다(#50). 개인 위치 정보를 툴 서버 DB에 두지 않으면, 툴 결과로 새어 나갈 경로 자체가 없습니다.
 DEV_SALT = "fds-dev-salt"
 
 
@@ -30,6 +33,10 @@ def card_token(cc_num: str, salt: str) -> str:
 
 def normalize_merchant(name: str) -> str:
     return name.removeprefix("fraud_")
+
+
+def _coord(value: str | None) -> float | None:
+    return float(value) if value not in (None, "") else None
 
 
 def load(csv_path: Path, db_path: Path, salt: str = DEV_SALT) -> int:
@@ -44,6 +51,10 @@ def load(csv_path: Path, db_path: Path, salt: str = DEV_SALT) -> int:
         rows = []
         for r in reader:
             trans_at = datetime.strptime(r["trans_date_trans_time"], "%Y-%m-%d %H:%M:%S")
+            m_lat, m_lon = _coord(r.get("merch_lat")), _coord(r.get("merch_long"))
+            h_lat, h_lon = _coord(r.get("lat")), _coord(r.get("long"))
+            home_km = (store_km(haversine_km(h_lat, h_lon, m_lat, m_lon))
+                       if None not in (m_lat, m_lon, h_lat, h_lon) else None)
             rows.append(
                 (
                     r["trans_num"],
@@ -52,9 +63,12 @@ def load(csv_path: Path, db_path: Path, salt: str = DEV_SALT) -> int:
                     str(Decimal(r["amt"])),
                     r["category"],
                     normalize_merchant(r["merchant"]),
+                    m_lat,
+                    m_lon,
+                    home_km,
                 )
             )
-        conn.executemany("INSERT OR REPLACE INTO transactions VALUES (?, ?, ?, ?, ?, ?)", rows)
+        conn.executemany("INSERT OR REPLACE INTO transactions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", rows)
         count = len(rows)
     conn.commit()
     conn.close()

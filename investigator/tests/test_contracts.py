@@ -27,12 +27,21 @@ OUT_V = Draft202012Validator(OUTPUT)
 IN_V = Draft202012Validator(INPUT)
 
 
-def spec_examples() -> list[dict]:
-    blocks = re.findall(r"```json\n(.*?)```", SPEC.read_text(encoding="utf-8"), re.S)
-    return [json.loads(b) for b in blocks]
+def spec_examples(section: str, next_section: str) -> list[dict]:
+    """명세의 한 절(예: '## 3.' ~ '## 4.')에 있는 JSON 예시만 읽습니다. 툴마다 절이 나뉘어 있습니다."""
+    text = SPEC.read_text(encoding="utf-8")
+    body = text[text.index(section):text.index(next_section)]
+    return [json.loads(b) for b in re.findall(r"```json\n(.*?)```", body, re.S)]
 
 
-OK_EXAMPLE, ERROR_EXAMPLE = spec_examples()
+OK_EXAMPLE, ERROR_EXAMPLE = spec_examples("## 3. `get_transaction_history`", "## 4.")
+
+
+def test_geo_spec_example_matches_contract():
+    (geo_example,) = spec_examples("## 6. `compute_geo_anomaly`", "## 7.")
+    geo = json.loads((CONTRACTS / "compute_geo_anomaly.output.schema.json").read_text(encoding="utf-8"))
+    Draft202012Validator.check_schema(geo)
+    assert not list(Draft202012Validator(geo).iter_errors(geo_example))
 
 
 def is_valid(validator: Draft202012Validator, instance: dict) -> bool:

@@ -17,10 +17,13 @@ LABELS = []
 CASES = {}
 
 
+HOME = ("40.71", "-74.00")   # 모든 합성 카드의 거주지(뉴욕). 적재기가 거리만 계산하고 버림 (#50)
+
+
 def add(txid, card, amount, at=AS_OF, category="grocery_pos", lat="40.71", lon="-74.00", label=None,
-        merchant="fraud_Synthetic Shop"):
+        merchant="fraud_Synthetic Shop", home=HOME):
     ROWS.append((at.strftime("%Y-%m-%d %H:%M:%S"), f"SYNTHETIC-{card}", merchant,
-                 category, amount, txid, lat, lon))
+                 category, amount, txid, lat, lon, home[0], home[1]))
     if label is not None:
         LABELS.append((txid, label))
 
@@ -98,9 +101,15 @@ add("inject2", "inject2", "25.00", label=0)
 add("geoprior", "geo", "20.00", AS_OF - timedelta(minutes=10))
 add("geo", "geo", "22.00", lat="34.05", lon="-118.24")
 expect("geo_history", "geo", 1, "20.00", "insufficient")
+# 비교용 정상 지리 사례 (#50): 거주지 근처 가맹점에서 3시간 간격. 이력 5건으로 거래 이력도 정상
+for i, amount in enumerate(["20.00", "22.00", "24.00", "26.00"], 2):
+    add(f"geonearh{i:05}", "geonear", amount, AS_OF - timedelta(days=i), lat="40.73", lon="-73.99")
+add("geonearh00001", "geonear", "23.00", AS_OF - timedelta(hours=3), lat="40.73", lon="-73.99")
+add("geonear", "geonear", "24.00", lat="40.75", lon="-73.98")
+expect("geonear_history", "geonear", 5, "23.00", "ok")
 
 for file, header, rows in [
-    ("transactions.csv", ("trans_date_trans_time", "cc_num", "merchant", "category", "amt", "trans_num", "merch_lat", "merch_long"), ROWS),
+    ("transactions.csv", ("trans_date_trans_time", "cc_num", "merchant", "category", "amt", "trans_num", "merch_lat", "merch_long", "lat", "long"), ROWS),
     ("evaluation_labels.csv", ("trans_num", "is_fraud"), LABELS),
 ]:
     with (BASE / file).open("w", newline="", encoding="utf-8") as f:

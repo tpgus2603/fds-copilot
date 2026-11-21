@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/tpgus2603/fds-copilot/contracts/mcp/compute_geo_anomaly.input.schema.json",
+  "title": "compute_geo_anomaly input",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["target_transaction_id"],
+  "properties": {
+    "target_transaction_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[A-Za-z0-9]+$",
+      "description": "조사 대상 거래 ID (trans_num)"
+    },
+    "lookback_days": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 90,
+      "default": 30,
+      "description": "직전 거래를 찾을 기준 시점 이전 기간(일)"
+    }
+  }
+}

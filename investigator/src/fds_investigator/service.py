@@ -1,6 +1,6 @@
-"""get_transaction_history 요청 처리. 명세 2.1의 검사 순서를 따릅니다.
+"""툴 요청 처리. 모든 툴이 명세 2.1의 검사 순서를 따릅니다.
 
-1. 입력 검증 → 2. 허용 목록 → 3. 대상 거래 존재 → 4. 이력 조회와 집계
+1. 입력 검증 → 2. 허용 목록 → 3. 대상 거래 존재 → 4. 조회와 계산
 """
 
 import asyncio
@@ -10,6 +10,8 @@ from typing import Any
 from . import contracts
 from .config import AllowList
 from .errors import RETRYABLE, DataSourceUnavailable, ErrorCode
+from .geo import DEFAULT_LOOKBACK_DAYS as GEO_LOOKBACK
+from .geo import build_geo_result, previous_transaction
 from .history import build_result, split_window, window_start
 from .repository import TransactionRepository
 
@@ -25,11 +27,13 @@ MESSAGES = {
 }
 
 
-def error_result(code: ErrorCode, detail: str | None = None) -> dict:
+def error_result(code: ErrorCode, detail: str | None = None, tool: str = contracts.TOOL_NAME) -> dict:
     message = MESSAGES[code] if detail is None else f"{MESSAGES[code]}: {detail}"
+    if code is ErrorCode.TIMEOUT and tool != contracts.TOOL_NAME:
+        message = "조회 시간이 초과되었습니다."
     return {
-        "tool": contracts.TOOL_NAME,
-        "schema_version": contracts.schema_version(),
+        "tool": tool,
+        "schema_version": contracts.schema_version(tool),
         "status": "error",
         "error": {"code": code.value, "message": message, "retryable": code in RETRYABLE},
     }
@@ -83,3 +87,47 @@ async def get_transaction_history(
 
     history, same_second = split_window(target, candidates, window_start(target.trans_at, lookback_days))
     return build_result(target, history, lookback_days, same_second, contracts.schema_version())
+
+
+async def compute_geo_anomaly(
+    arguments: dict[str, Any] | None,
+    allowlist: AllowList,
+    repo: TransactionRepository,
+    timeout_seconds: float = 5.0,
+) -> dict:
+    tool = contracts.GEO_TOOL
+    args = arguments or {}
+
+    # 1. 입력 검증 (계약 스키마)
+    errors = sorted(contracts.input_validator(tool).iter_errors(args), key=lambda e: list(e.path))
+    if errors:
+        where = "/".join(str(p) for p in errors[0].path) or "(root)"
+        return error_result(ErrorCode.INVALID_ARGUMENT, where, tool)
+
+    target_id: str = args["target_transaction_id"]
+    lookback_days = int(args.get("lookback_days", GEO_LOOKBACK))
+
+    # 2. 허용 목록 (존재 확인보다 먼저)
+    if not allowlist.permits(target_id):
+        return error_result(ErrorCode.OUT_OF_SCOPE, tool=tool)
+
+    try:
+        async with asyncio.timeout(timeout_seconds):
+            # 3. 대상 거래 존재
+            target = await asyncio.to_thread(repo.get_transaction, target_id)
+            if target is None:
+                return error_result(ErrorCode.NOT_FOUND, tool=tool)
+            # 4. 직전 거래 후보: 경계를 포함해 요청하고 경계 처리는 순수 함수가 강제합니다.
+            candidates = await asyncio.to_thread(
+                repo.card_history, target.card_token, window_start(target.trans_at, lookback_days), target.trans_at)
+    except TimeoutError:
+        return error_result(ErrorCode.TIMEOUT, tool=tool)
+    except DataSourceUnavailable:
+        log.exception("data source unavailable")
+        return error_result(ErrorCode.DATA_SOURCE_UNAVAILABLE, tool=tool)
+    except Exception:
+        log.exception("unexpected error while computing geo anomaly")
+        return error_result(ErrorCode.INTERNAL, tool=tool)
+
+    previous = previous_transaction(target, candidates, lookback_days)
+    return build_geo_result(target, previous, lookback_days, contracts.schema_version(tool))
