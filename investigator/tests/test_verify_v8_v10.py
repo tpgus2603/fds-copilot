@@ -248,3 +248,31 @@ def test_structural_error_is_listed_first_even_with_many_pattern_errors(snaps):
     shown = sum(1 for x in r.failures if x["where"].endswith("/statement") or x["where"] == "/summary")
     omitted = [x for x in r.failures if x["where"] == ""]
     assert shown + (int(omitted[0]["detail"].split()[3][:-1]) if omitted else 0) == total_pattern
+
+
+# ---------- #40, Gemini 리뷰 후속 ----------
+
+def test_same_location_violation_is_reported_once(snaps):
+    rep = report(f("suspicion", "대상은 10배이고 {0}입니다.", ev(H90, EXCEEDS, True)))
+    stmt = [x for x in verify_report(rep, snaps).failures if x["where"] == "/findings/0/statement"]
+    assert len(stmt) == 1 and stmt[0]["rule"] == "pattern"
+
+
+def test_polarity_is_not_judged_on_a_miscited_value(snaps):
+    # 실제 false를 true로 잘못 인용: 값 불일치만 보고하고, 잘못된 값으로 방향을 다시 판정하지 않음
+    rep = report(f("counter", "대상은 {0}입니다.", ev(H365, EXCEEDS, True)), rec="no_anomaly_found")
+    codes = [x["code"] for x in verify_report(rep, snaps).failures]
+    assert codes == ["EVIDENCE_VALUE_MISMATCH"]
+
+
+@pytest.mark.parametrize("summary,rule", [("", "minLength"), (5, "type"), ("요약 1", "pattern")])
+def test_summary_schema_failures_carry_rule(snaps, summary, rule):
+    rep = report(f("gap", "표본은 {0}입니다.", ev(H90, "/stats/txn_count", 5)), rec="insufficient_evidence")
+    rep["summary"] = summary
+    got = [x for x in verify_report(rep, snaps).failures if x["where"] == "/summary"]
+    assert got and got[0]["rule"] == rule
+
+
+def test_evidence_id_format_is_defined_once():
+    from fds_investigator.agent import render, verify
+    assert verify._EVIDENCE_ID is render.EVIDENCE_ID

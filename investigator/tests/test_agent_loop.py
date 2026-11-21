@@ -445,3 +445,27 @@ def test_every_failure_code_has_a_fixed_hint():
     from fds_investigator.agent.prompts import FAILURE_HINTS
     from fds_investigator.agent.verify import FAILURE_CODES
     assert set(FAILURE_HINTS) == set(FAILURE_CODES)
+
+
+# ---------- #40, Gemini 리뷰 후속 ----------
+
+async def test_rendered_value_comes_from_snapshot_not_citation(db):
+    # 27B r2 관찰: 인용 10(정수), 툴 결과 10.0 → V4 통과, 이전에는 '[… 10배]'로 표시
+    rep = high_report()
+    rep["findings"][0]["evidence"][0]["value"] = 10
+    r = await run(db, FakeModel(respond(submit(rep))))
+    assert r.outcome.status == "reported"
+    assert "10.0배" in r.rendered["findings"][0]["text"] and "10배" not in r.rendered["findings"][0]["text"]
+    assert r.report["findings"][0]["evidence"][0]["value"] == 10      # 원본 보고서는 그대로 보존
+
+
+def test_model_hint_follows_schema_rule_not_location():
+    from fds_investigator.agent.prompts import repair_request
+    def hint(rule, where="/summary"):
+        return repair_request([{"code": "REPORT_SCHEMA_INVALID", "where": where, "detail": "x", "rule": rule}])["failures"][0]["hint"]
+    assert "빈 문자열" in hint("minLength")
+    assert "형식" in hint("type")
+    assert "숫자" in hint("pattern")
+    assert "숫자" in hint("pattern", "/findings/0/statement")
+    assert "그 밖의" in hint("omitted", "")
+    assert "보고서 형식 위반" in hint("required", "/findings/0")

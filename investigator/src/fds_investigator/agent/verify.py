@@ -12,7 +12,7 @@ from typing import Any
 from jsonschema import Draft202012Validator
 
 from ..report_rules import json_values_equal, numeric_chars
-from .render import PLACEHOLDER, renderer_for
+from .render import EVIDENCE_ID, PLACEHOLDER, renderer_for
 
 _SCHEMA_PATH = Path(__file__).resolve().parents[4] / "contracts" / "agent" / "report.schema.json"
 _MISSING = object()
@@ -31,7 +31,7 @@ _POLARITY: dict[str, dict[Any, str]] = {
 }
 _CATEGORY_SHARE = re.compile(r"^/category_distribution/[0-9]{1,2}/category$")
 # V10: evidence_id = EV-<툴>-<대상>-<기간>d
-_EVIDENCE_ID = re.compile(r"^(EV-[A-Z]{2}-[A-Za-z0-9]{1,64})-([0-9]{1,3})d$")
+_EVIDENCE_ID = EVIDENCE_ID
 
 
 # V9 보강 (PR #31 리뷰): 비교 이력이 없거나(empty) 최소 표본 미만(insufficient)이면, 이력에서 나온 값은
@@ -107,8 +107,12 @@ def _is_text_pattern_error(e: Any) -> bool:
 def verify_report(report: Any, snapshots: dict[str, dict]) -> VerificationResult:
     failures: list[dict[str, str]] = []
 
-    def fail(code: str, where: str, detail: str) -> None:
-        failures.append({"code": code, "where": where, "detail": detail})
+    def fail(code: str, where: str, detail: str, rule: str | None = None) -> None:
+        # rule: 스키마 위반의 종류(pattern, minLength, type, omitted 등). 모델용 안내 문구를 고를 때만 씁니다.
+        item = {"code": code, "where": where, "detail": detail}
+        if rule is not None:
+            item["rule"] = rule
+        failures.append(item)
 
     # V1: 스키마 + 숫자 문자 금지 (유니코드 숫자 범주 전체)
     errors = list(Draft202012Validator(report_schema()).iter_errors(report))
@@ -117,40 +121,45 @@ def verify_report(report: Any, snapshots: dict[str, dict]) -> VerificationResult
     structural = [e for e in errors if not _is_text_pattern_error(e)]
     ordered = structural + [e for e in errors if _is_text_pattern_error(e)]
     for e in ordered[:MAX_SCHEMA_FAILURES]:
-        fail("REPORT_SCHEMA_INVALID", "/" + "/".join(map(str, e.path)), e.message[:200])
+        fail("REPORT_SCHEMA_INVALID", "/" + "/".join(map(str, e.path)), e.message[:200], str(e.validator))
     if len(ordered) > MAX_SCHEMA_FAILURES:
-        fail("REPORT_SCHEMA_INVALID", "", f"그 밖의 스키마 위반 {len(ordered) - MAX_SCHEMA_FAILURES}건 생략")
+        fail("REPORT_SCHEMA_INVALID", "", f"그 밖의 스키마 위반 {len(ordered) - MAX_SCHEMA_FAILURES}건 생략", "omitted")
     # 문장·요약의 문자 패턴 위반(숫자·자리표시자)은 구조 오류가 아니므로 V2~V10을 계속 검사해 실패를 모두 모읍니다.
     # 첫 실패에서 멈추면 수정 요청(4.4)이 일부 위치만 알려 주게 되고, 모델이 그것만 고친 뒤 다음 검증에서
     # 처음부터 있던 다른 실패로 다시 떨어집니다(27B r1 관찰). 구조 오류는 이후 검사가 전제를 잃으므로 멈춥니다.
     if structural:
         return VerificationResult(False, "REPORT_SCHEMA_INVALID", failures)
     if chars := numeric_chars(report["summary"], allow_placeholders=False):
-        fail("REPORT_SCHEMA_INVALID", "/summary", f"숫자 문자 {chars[:3]}")
+        fail("REPORT_SCHEMA_INVALID", "/summary", f"숫자 문자 {chars[:3]}", "pattern")
     for i, f in enumerate(report["findings"]):
         if chars := numeric_chars(f["statement"], allow_placeholders=True):
-            fail("REPORT_SCHEMA_INVALID", f"/findings/{i}/statement", f"숫자 문자 {chars[:3]}")
+            fail("REPORT_SCHEMA_INVALID", f"/findings/{i}/statement", f"숫자 문자 {chars[:3]}", "pattern")
 
     for i, f in enumerate(report["findings"]):
+        bad_refs: set[int] = set()   # V2~V6에서 실패한 근거. V9는 이 근거를 건너뜁니다 (Gemini 리뷰 #45)
         for j, ref in enumerate(f["evidence"]):
             where = f"/findings/{i}/evidence/{j}"
             snap = snapshots.get(ref["evidence_id"])
             # V2
             if snap is None:
                 fail("EVIDENCE_NOT_FOUND", where, ref["evidence_id"])
+                bad_refs.add(j)
                 continue
             # V6
             if snap.get("status") == "error" and f["kind"] in ("suspicion", "counter"):
                 fail("ERROR_RESULT_CITED", where, ref["evidence_id"])
+                bad_refs.add(j)
                 continue
             # V3
             actual = resolve_pointer(snap, ref["path"])
             if actual is _MISSING or renderer_for(ref["path"]) is None:
                 fail("EVIDENCE_PATH_INVALID", where, ref["path"])
+                bad_refs.add(j)
                 continue
             # V4: JSON 타입 먼저, 숫자는 10진수 비교
             if not json_values_equal(ref["value"], actual):
                 fail("EVIDENCE_VALUE_MISMATCH", where, f"cited={ref['value']!r} actual={actual!r}")
+                bad_refs.add(j)
         # V5
         used = {int(n) for n in PLACEHOLDER.findall(f["statement"])}
         for n in sorted(used):
@@ -160,10 +169,10 @@ def verify_report(report: Any, snapshots: dict[str, dict]) -> VerificationResult
         for j in range(len(f["evidence"])):
             if j not in used:
                 fail("EVIDENCE_NOT_REFERENCED", f"/findings/{i}/evidence/{j}", f"문장에 {{{j}}}가 없습니다")
-        # V9
+        # V9: 값이 확인된 근거만 판정합니다. 잘못 인용한 값으로 방향을 판정하면 같은 근거에 엉뚱한 실패가 더 붙습니다.
         for j, ref in enumerate(f["evidence"]):
             snap = snapshots.get(ref["evidence_id"])
-            if snap is None:
+            if snap is None or j in bad_refs:
                 continue
             if why := _sparse_history_direction(f["kind"], ref["path"], snap):
                 fail("SPARSE_HISTORY_DIRECTION", f"/findings/{i}/evidence/{j}", why)
@@ -187,5 +196,14 @@ def verify_report(report: Any, snapshots: dict[str, dict]) -> VerificationResult
 
     if not failures:
         return VerificationResult(True)
+    # 같은 위치·같은 종류의 위반은 하나만 남깁니다(스키마 pattern과 숫자 문자 검사가 같은 문장을 두 번 지적하던 문제, #40).
+    seen: set[tuple[Any, ...]] = set()
+    unique = []
+    for x in failures:
+        key = (x["code"], x["where"], x.get("rule"))
+        if key not in seen:
+            seen.add(key)
+            unique.append(x)
+    failures[:] = unique
     first = min(failures, key=lambda x: FAILURE_CODES.index(x["code"]))
     return VerificationResult(False, first["code"], failures)

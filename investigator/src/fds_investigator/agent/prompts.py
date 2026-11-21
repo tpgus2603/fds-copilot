@@ -61,6 +61,7 @@ SYSTEM_PROMPT = """당신은 카드 이상거래(FDS) 조사역을 돕는 조사
    아라비아 숫자뿐 아니라 "두 배", "절반" 같은
    수량 표현도 쓰지 마십시오. 수치가 필요하면 문장에 {0}, {1} 같은 자리표시자를 넣고, 같은 발견 사항의
    evidence 배열에서 그 순번의 항목이 그 값을 가리키게 하십시오. 서버가 자리표시자를 구절로 바꿔 표시합니다(9번).
+   번호는 발견 사항마다 {0}부터 다시 셉니다. 보고서 전체에 이어 매기지 마십시오.
    evidence에 넣은 항목은 모두 문장에서 {0}, {1}처럼 가리켜야 합니다. 문장에 드러나지 않는 근거는 넣지 마십시오.
    한 발견 사항에는 같은 조회 기간의 결과만 근거로 쓰십시오. 기간별로 다르면 발견 사항을 나누십시오.
    path는 하나의 값(문자열, 숫자, 불리언, null)을 가리켜야 합니다. 배열이나 객체 전체를 인용하지 말고
@@ -128,12 +129,19 @@ def _model_failure(f: dict[str, Any]) -> dict[str, str]:
     code, where = f["code"], f["where"]
     hint = FAILURE_HINTS[code]
     if code == "REPORT_SCHEMA_INVALID":
-        if where == "/summary":
-            hint = _TEXT_HINTS["/summary"]
-        elif where.endswith("/statement"):
-            hint = _TEXT_HINTS["statement"]
-        elif where == "":
+        # 위치만으로 고르면 빈 요약(minLength)이나 타입 오류에도 숫자 금지 안내가 나갑니다(Gemini 리뷰 #39).
+        # 검증기가 남긴 위반 종류(rule)로 고릅니다. rule은 스키마 키워드 이름이라 모델 문자열을 담지 않습니다.
+        rule = f.get("rule")
+        if rule == "omitted":
             hint = "그 밖의 형식 위반이 더 있습니다. 보고서 전체 형식을 확인하십시오."
+        elif rule == "pattern" and where == "/summary":
+            hint = _TEXT_HINTS["/summary"]
+        elif rule == "pattern" and where.endswith("/statement"):
+            hint = _TEXT_HINTS["statement"]
+        elif rule == "minLength":
+            hint = "빈 문자열은 쓸 수 없습니다."
+        elif rule == "type":
+            hint = "값의 형식(문자열, 배열 등)이 맞지 않습니다."
     elif code == "EVIDENCE_NOT_REFERENCED" and (m := _EVIDENCE_WHERE.match(where)):
         hint = f"이 근거를 문장에서 {{{m.group(1)}}}로 가리키거나, 필요 없으면 빼십시오."
     return {"code": code, "where": where, "hint": hint}
