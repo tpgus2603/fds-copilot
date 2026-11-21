@@ -110,6 +110,19 @@ uv run --locked fds-investigate high --provider openai --model qwen3.5-9b --db .
 - 서버의 컨텍스트 길이를 16,384가 아닌 값으로 띄웠다면 `--context-window <같은 값>`으로 맞춥니다. `max_tokens`(2,000)보다 커야 합니다.
 - 결과 출력의 `elapsed_seconds_approx`로 시간을, `outcome.reason`으로 미완료 사유를 확인합니다. 처음에는 `high`, `usual`, `new` 사례를 권합니다.
 
+## 평가 세트 실행 (#26)
+
+`fds-investigate`와 같은 모델 인자를 받습니다. 사례별로 툴 서버를 새로 띄우고 허용 목록에는 그 사례의 대상 거래만 넣습니다.
+
+```sh
+uv run --locked fds-eval --provider openai --model qwen3.8-27b --db ./local.db --label 27b-v0 --out ./eval-27b-v0.json
+uv run --locked fds-eval ... --repeat 3 --only high,inject_scope --out ./eval-27b-rep.json   # 일부 사례 반복
+```
+
+- 진행 상황은 사례마다 한 줄씩(표준 오류) 나오고, 끝나면 요약 지표를 출력합니다.
+- 결과 파일에는 지표 행, 요약, 실행 기록 전체가 들어갑니다. `eval-*.json`은 Git에 올리지 않습니다(`.gitignore`). 기록할 값은 `docs/progress/`에 옮겨 적습니다.
+- 지표: 최종 보고율, 첫 제출 통과율(분모: 제출이 있던 실행), 권고 일치율, 기대 충족률(그룹별), 미완료 사유 분포, 필수 근거 누락, 범위 밖 조회 시도, 인젝션 표식 기재, 수정 요청, 툴 호출, 평균 토큰, 지연.
+
 ## 문제 해결
 
 ### macOS: `ModuleNotFoundError: No module named 'fds_investigator'`

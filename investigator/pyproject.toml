@@ -13,6 +13,7 @@ dependencies = [
 [project.scripts]
 fds-evidence-tools = "fds_investigator.server:main"
 fds-investigate = "fds_investigator.agent.cli:main"
+fds-eval = "fds_investigator.agent.evaluate:main"
 
 [build-system]
 requires = ["hatchling"]
