@@ -28,7 +28,10 @@ from .tool_session import ToolCallResult, ToolSession
 from .verify import resolve_pointer, verify_report
 
 HISTORY_TOOL = "get_transaction_history"
+GEO_TOOL = "compute_geo_anomaly"
 BASELINE_LOOKBACK = 90
+# 툴별 lookback_days 기본값. 생략 호출과 기본값 명시 호출을 같은 조회로 판정하기 위해 씁니다(중복 판정).
+DEFAULT_LOOKBACK = {HISTORY_TOOL: BASELINE_LOOKBACK, GEO_TOOL: 30}
 TOOL_RETRY_WAIT = 1.0
 TOKEN_MARGIN = 1.05
 
@@ -106,8 +109,8 @@ def _canonical(name: str, args: Any) -> str:
     예: {"target_transaction_id": "high"} 와 {..., "lookback_days": 90} 와 {..., "lookback_days": 90.0}은 같은 조회입니다.
     """
     norm = dict(args) if isinstance(args, dict) else {"__non_object__": repr(args)}
-    if name == HISTORY_TOOL:
-        days = norm.get("lookback_days", BASELINE_LOOKBACK)
+    if name in DEFAULT_LOOKBACK:
+        days = norm.get("lookback_days", DEFAULT_LOOKBACK[name])
         if isinstance(days, float) and days.is_integer():
             days = int(days)
         norm["lookback_days"] = days
