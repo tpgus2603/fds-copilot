@@ -179,5 +179,18 @@
         "amount_mean": "20.00"
       }
     }
+  },
+  "geonear_history": {
+    "arguments": {
+      "target_transaction_id": "geonear"
+    },
+    "expected": {
+      "status": "ok",
+      "evidence_id": "EV-TH-geonear-90d",
+      "stats": {
+        "txn_count": 5,
+        "amount_mean": "23.00"
+      }
+    }
   }
 }

@@ -52,7 +52,7 @@ async def test_baseline_then_submit_reports(db):
     assert r.usage.model_calls == 1 and r.usage.tool_calls == 0
     # 첫 요청에 시스템 프롬프트, 조회 툴 + submit_report, 기본 증거가 들어감
     req = model.requests[0]
-    assert [t["name"] for t in req.tools] == ["get_transaction_history", "submit_report"]
+    assert [t["name"] for t in req.tools] == ["get_transaction_history", "compute_geo_anomaly", "submit_report"]
     assert "EV-TH-high-90d" in req.messages[0]["content"]
 
 
