@@ -44,3 +44,7 @@ def test_citable_path_list_matches_catalog_and_excludes_invented_paths():
 
 def test_sample_size_rule_has_gap_example():
     assert "표본 수가 적다는 사실은 counter가 아니라 gap입니다. 예:" in SYSTEM_PROMPT
+
+
+def test_summary_forbids_placeholders():
+    assert "요약(summary)에는 근거가 연결되지 않으므로" in SYSTEM_PROMPT

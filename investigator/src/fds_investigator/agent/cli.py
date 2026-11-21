@@ -29,6 +29,8 @@ def main() -> None:
     p.add_argument("--provider", choices=["anthropic", "openai"], default=os.environ.get("FDS_MODEL_PROVIDER", "anthropic"))
     p.add_argument("--base-url", default=os.environ.get("FDS_MODEL_BASE_URL", "http://localhost:8080/v1"))
     p.add_argument("--model", default=os.environ.get("CLAUDE_MODEL") or os.environ.get("FDS_MODEL"))
+    p.add_argument("--repairs", type=int, choices=[0, 1, 2],
+                   help="보고서 검증 실패 시 수정 요청 횟수 (기본 1). 0이면 첫 제출만 평가")
     p.add_argument("--profile", choices=sorted(PROFILES), help="상한 프로필 (기본: anthropic=cloud, openai=local)")
     p.add_argument("--thinking", action="store_true", help="로컬 모델의 생각 모드를 켭니다 (기본 끔)")
     p.add_argument("--backend", choices=sorted(BACKENDS), default=os.environ.get("FDS_MODEL_BACKEND", "llama_cpp"),
@@ -61,6 +63,8 @@ def main() -> None:
         profile = a.profile or "local"
 
     limits = PROFILES[profile]
+    if a.repairs is not None:
+        limits = dataclasses.replace(limits, max_report_repairs=a.repairs)
     if a.context_window is not None:
         if a.context_window <= limits.max_tokens:
             print(f"[fds-investigate] --context-window는 max_tokens({limits.max_tokens})보다 커야 합니다", file=sys.stderr)
@@ -80,7 +84,8 @@ def main() -> None:
         a.out.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     seconds = sum(s.get("duration_ms", 0) for s in data["steps"]) / 1000
     summary = {"run_id": data["run_id"], "provider": a.provider, "model": a.model, "profile": profile,
-               "outcome": data["outcome"], "usage": data["usage"], "elapsed_seconds_approx": round(seconds, 1),
+               "outcome": data["outcome"], "first_submission_ok": data["first_submission_ok"],
+               "usage": data["usage"], "elapsed_seconds_approx": round(seconds, 1),
                "rendered": data["rendered"]}
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     sys.exit(0 if result.outcome.status == "reported" else 1)

@@ -213,10 +213,11 @@ async def test_time_limit(db):
     (high_report(summary="평균의 두 배가 넘는 금액입니다."), "NUMBER_WORD_USED"),                 # V7
 ])
 async def test_verification_failures_are_incomplete(db, report, reason):
-    r = await run(db, FakeModel(respond(submit(report))))
+    # 검증 사유 코드를 보는 테스트이므로 수정 요청을 끕니다 (수정 요청은 아래 #38 테스트)
+    r = await run(db, FakeModel(respond(submit(report))), max_report_repairs=0)
     assert (r.outcome.status, r.outcome.reason) == ("incomplete", reason)
     assert r.report == report and r.rendered is None
-    assert "verification" in step_types(r)
+    assert "verification" in step_types(r) and r.first_submission_ok is False
 
 
 async def test_trace_is_serializable_and_has_no_secrets(db, monkeypatch):
@@ -331,3 +332,116 @@ async def test_any_other_exception_is_recorded_not_raised():
 
     r = await investigate("x", FakeModel(), broken, MODEL, Limits())
     assert (r.outcome.status, r.outcome.reason) == ("incomplete", "AGENT_INTERNAL_ERROR")
+
+
+# ---------- 검증 실패 시 1회 수정 요청 (#38, docs/04 4.4) ----------
+
+def _no_placeholder() -> dict:
+    return high_report(findings=[{"kind": "suspicion", "statement": "대상 금액이 최댓값을 넘습니다.",
+                                  "evidence": [{"evidence_id": "EV-TH-high-90d", "path": "/stats/target_exceeds_max",
+                                                "value": True}]}])
+
+
+async def test_failed_report_is_repaired_once_and_reported(db):
+    bad = submit(_no_placeholder())
+    model = FakeModel(respond(bad), respond(submit(high_report())))
+    r = await run(db, model)
+    assert r.outcome.status == "reported"
+    assert r.first_submission_ok is False                       # 첫 제출 지표는 실패로 남음
+    assert (r.usage.report_submissions, r.usage.report_repairs, r.usage.model_calls) == (2, 1, 2)
+    assert r.report == high_report()                            # 렌더링은 수정본 기준
+    # 수정 요청은 첫 submit_report에 대한 is_error tool_result이며, 실패 목록만 담고 고친 문장은 제안하지 않음
+    block = model.requests[1].messages[-1]["content"][0]
+    assert block["tool_use_id"] == bad["id"] and block["is_error"] is True
+    payload = json.loads(block["content"])
+    assert set(payload) == {"status", "error", "failures"}
+    assert payload["failures"][0]["code"] == "EVIDENCE_NOT_REFERENCED"
+    assert step_types(r).count("verification") == 2 and "repair_requested" in step_types(r)
+
+
+async def test_second_failure_ends_incomplete_with_its_own_code(db):
+    second = high_report(findings=[{"kind": "suspicion", "statement": "대상은 {5}입니다.",
+                                    "evidence": [{"evidence_id": "EV-TH-high-90d", "path": "/stats/target_exceeds_max",
+                                                  "value": True}]}])
+    r = await run(db, FakeModel(respond(submit(_no_placeholder())), respond(submit(second))))
+    assert (r.outcome.status, r.outcome.reason) == ("incomplete", "PLACEHOLDER_INVALID")
+    assert r.usage.report_repairs == 1 and r.first_submission_ok is False
+
+
+async def test_first_pass_report_needs_no_repair(db):
+    r = await run(db, FakeModel(respond(submit(high_report()))))
+    assert r.outcome.status == "reported" and r.first_submission_ok is True
+    assert (r.usage.report_submissions, r.usage.report_repairs) == (1, 0)
+
+
+async def test_repair_still_obeys_model_call_limit(db):
+    # 수정 요청은 예약되었지만 호출 상한에 걸려 모델은 피드백을 받지 못함 → 실제 수정 요청 0회 (PR #39 리뷰)
+    r = await run(db, FakeModel(respond(submit(_no_placeholder()))), max_model_calls=1)
+    assert r.outcome.reason == "MAX_MODEL_CALLS" and r.usage.report_repairs == 0
+    assert "repair_scheduled" in step_types(r) and "repair_requested" not in step_types(r)
+
+
+async def test_model_may_look_up_more_evidence_after_repair_request(db):
+    fixed = high_report(findings=[{"kind": "gap", "statement": "장기 기간은 {0}입니다.",
+                                   "evidence": [{"evidence_id": "EV-TH-high-365d", "path": "/stats/target_exceeds_max",
+                                                 "value": False}]}], recommendation="insufficient_evidence")
+    model = FakeModel(respond(submit(_no_placeholder())), respond(history("high", 365)), respond(submit(fixed)))
+    r = await run(db, model)
+    assert r.outcome.status == "reported", r.outcome
+    assert set(r.tool_results) == {"EV-TH-high-90d", "EV-TH-high-365d"}
+
+
+async def test_no_submission_leaves_first_pass_unknown(db):
+    r = await run(db, FakeModel(text("생각 중"), text("아직")))
+    assert r.outcome.reason == "NO_REPORT" and r.first_submission_ok is None
+
+
+async def test_repair_request_lists_all_failures_and_asks_for_targeted_fix(db):
+    # 요약 숫자 + 근거 미참조가 한 번에 전달되어야 함 (27B r1: 요약 오류만 전달 → 다른 곳에서 재실패)
+    bad = _no_placeholder()
+    bad["summary"] = "평균의 10배입니다."
+    model = FakeModel(respond(submit(bad)), respond(submit(high_report())))
+    r = await run(db, model)
+    assert r.outcome.status == "reported"
+    payload = json.loads(model.requests[1].messages[-1]["content"][0]["content"])
+    assert {f["code"] for f in payload["failures"]} == {"REPORT_SCHEMA_INVALID", "EVIDENCE_NOT_REFERENCED"}
+    assert "위치만 고치고" in payload["error"]["message"]
+
+
+
+# ---------- PR #39 리뷰 ----------
+
+async def test_repair_payload_does_not_echo_model_text_or_values(db):
+    # Codex 재현: 요약의 '123 SYNTHETIC_MARKER'가 수정 요청에 그대로 되돌아감 → 코드·위치·고정 안내만
+    bad = high_report(summary="123 SYNTHETIC_MARKER", findings=[
+        {"kind": "suspicion", "statement": "SYNTHETIC_MARKER {0}",
+         "evidence": [{"evidence_id": "EV-TH-high-90d", "path": "/stats/target_exceeds_max", "value": True},
+                      {"evidence_id": "EV-TH-high-90d", "path": "/stats/txn_count", "value": 999}]}])
+    model = FakeModel(respond(submit(bad)), respond(submit(high_report())))
+    r = await run(db, model)
+    raw = model.requests[1].messages[-1]["content"][0]["content"]
+    assert "SYNTHETIC_MARKER" not in raw and "123" not in raw and "999" not in raw
+    payload = json.loads(raw)
+    assert all(set(f) == {"code", "where", "hint"} for f in payload["failures"])
+    # 다음 검증에 필요한 위치는 모두 전달됨, 감사 기록에는 원래 detail이 남음
+    audit = next(s for s in r.steps if s["type"] == "verification")["failures"]
+    assert {(f["code"], f["where"]) for f in payload["failures"]} == {(f["code"], f["where"]) for f in audit}
+    assert any("999" in f["detail"] for f in audit)
+    assert r.outcome.status == "reported" and r.usage.report_repairs == 1
+
+
+async def test_lookups_after_repair_are_counted_separately(db):
+    fixed = high_report(findings=[{"kind": "gap", "statement": "장기 기간은 {0}입니다.",
+                                   "evidence": [{"evidence_id": "EV-TH-high-365d", "path": "/stats/target_exceeds_max",
+                                                 "value": False}]}], recommendation="insufficient_evidence")
+    model = FakeModel(respond(history("high", 30)), respond(submit(_no_placeholder())),
+                      respond(history("high", 365)), respond(submit(fixed)))
+    r = await run(db, model)
+    assert r.outcome.status == "reported"
+    assert (r.usage.tool_calls, r.usage.repair_tool_calls) == (2, 1)
+
+
+def test_every_failure_code_has_a_fixed_hint():
+    from fds_investigator.agent.prompts import FAILURE_HINTS
+    from fds_investigator.agent.verify import FAILURE_CODES
+    assert set(FAILURE_HINTS) == set(FAILURE_CODES)

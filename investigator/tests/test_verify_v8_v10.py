@@ -134,7 +134,8 @@ def test_first_failure_code_keeps_v1_v7_priority(snaps):
 @pytest.mark.anyio
 async def test_loop_marks_9b_style_report_incomplete(db):
     bad = REJECT["no-placeholder-9b"][0]
-    r = await investigate("high", FakeModel(respond(submit(bad))), lambda x: McpToolSession(x, db), "fake", Limits())
+    r = await investigate("high", FakeModel(respond(submit(bad))), lambda x: McpToolSession(x, db), "fake",
+                          Limits(max_report_repairs=0))
     assert (r.outcome.status, r.outcome.reason) == ("incomplete", "EVIDENCE_NOT_REFERENCED")
 
 
@@ -184,3 +185,66 @@ def test_insufficient_status_is_treated_like_empty():
     assert _sparse_history_direction("gap", "/target_category/seen_before", snap) is None
     assert _sparse_history_direction("suspicion", "/target/amount", snap) is None
     assert _sparse_history_direction("suspicion", "/stats/txn_count", {"status": "ok"}) is None
+
+
+# ---------- 패턴 위반이 있어도 실패를 모두 모음 (#38, 27B r1 관찰) ----------
+
+N90, N365 = "EV-TH-new-90d", "EV-TH-new-365d"
+
+
+@pytest.fixture(scope="module")
+def new_snaps(db) -> dict[str, dict]:
+    async def collect() -> dict[str, dict]:
+        model = FakeModel(respond(history("new", 365)), respond(submit(high_report())))
+        r = await investigate("new", model, lambda x: McpToolSession(x, db), "fake", Limits(max_report_repairs=0))
+        return r.tool_results
+    return asyncio.run(collect())
+
+
+def test_summary_pattern_error_does_not_hide_other_failures(new_snaps):
+    # 27B new r1 첫 제출: 요약에 숫자, 문장에 원문자(①), 근거 하나 미참조가 함께 있었지만
+    # 요약 오류만 보고되어 모델이 요약만 고친 뒤 다시 실패했습니다.
+    rep = report(
+        f("gap", "기본 ①일 비교 기간에 과거 거래가 {0}건으로 없습니다.",
+          ev(N90, "/basis/lookback_days", 90), ev(N90, "/stats/txn_count", 0)),
+        rec="insufficient_evidence", summary="90일과 365일 모두 과거 거래가 없습니다.")
+    r = verify_report(rep, new_snaps)
+    got = {(x["code"], x["where"]) for x in r.failures}
+    assert ("REPORT_SCHEMA_INVALID", "/summary") in got
+    assert ("REPORT_SCHEMA_INVALID", "/findings/0/statement") in got        # ① (유니코드 No 범주)
+    assert ("EVIDENCE_NOT_REFERENCED", "/findings/0/evidence/1") in got     # 이전에는 가려졌던 실패
+    assert r.code == "REPORT_SCHEMA_INVALID"
+
+
+def test_placeholders_in_summary_are_reported_with_the_rest(snaps):
+    # 27B usual r1 첫 제출: 요약에 {0}~{4}
+    rep = report(f("counter", "대상 업종 {0}입니다.", ev(U90, SEEN, True), ev(U90, "/target/category", "grocery_pos")),
+                 rec="no_anomaly_found", summary="최근 {0}의 평균과 일치합니다.")
+    got = {(x["code"], x["where"]) for x in verify_report(rep, snaps).failures}
+    assert got == {("REPORT_SCHEMA_INVALID", "/summary"), ("EVIDENCE_NOT_REFERENCED", "/findings/0/evidence/1")}
+
+
+@pytest.mark.parametrize("rep", [
+    {"summary": "요약", "findings": "목록 아님", "recommendation": "further_review_recommended"},
+    report(f("suspicion", "{0}", {"evidence_id": H90, "path": EXCEEDS})),               # value 누락
+    {"summary": "요약", "findings": [], "recommendation": "unknown"},
+], ids=["findings-not-list", "evidence-missing-value", "bad-enum"])
+def test_structural_errors_still_stop_early(snaps, rep):
+    r = verify_report(rep, snaps)
+    assert not r.ok and {x["code"] for x in r.failures} == {"REPORT_SCHEMA_INVALID"}
+
+
+
+def test_structural_error_is_listed_first_even_with_many_pattern_errors(snaps):
+    # Codex 재현: 패턴 위반 7개 뒤의 evidence 누락이 errors[:5]에서 잘려 모델에 전달되지 않음
+    findings = [f("suspicion", f"문장 {i}입니다 {{0}}", ev(H90, EXCEEDS, True)) for i in range(6)]
+    findings.append({"kind": "gap", "statement": "근거 필드 누락"})
+    rep = report(*findings, summary="요약 1")
+    r = verify_report(rep, snaps)
+    first = r.failures[0]
+    assert first["where"] == "/findings/6" and "evidence" in first["detail"]
+    assert len(r.failures) <= 11
+    total_pattern = 7
+    shown = sum(1 for x in r.failures if x["where"].endswith("/statement") or x["where"] == "/summary")
+    omitted = [x for x in r.failures if x["where"] == ""]
+    assert shown + (int(omitted[0]["detail"].split()[3][:-1]) if omitted else 0) == total_pattern
