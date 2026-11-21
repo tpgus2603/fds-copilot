@@ -31,6 +31,9 @@ _NUMBER_WORDS = re.compile(
 _POLARITY: dict[str, dict[Any, str]] = {
     "/stats/target_exceeds_max": {True: "suspicion", False: "counter"},
     "/target_category/seen_before": {False: "suspicion", True: "counter"},
+    # compute_geo_anomaly (#52): 기준 초과는 의심, 기준 이내는 정상 정황
+    "/previous/exceeds_plausible_speed": {True: "suspicion", False: "counter"},
+    "/target/far_from_home": {True: "suspicion", False: "counter"},
 }
 _CATEGORY_SHARE = re.compile(r"^/category_distribution/[0-9]{1,2}/category$")
 # V10: evidence_id = EV-<툴>-<대상>-<기간>d

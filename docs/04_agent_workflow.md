@@ -296,6 +296,8 @@ OpenAI 호환 어댑터는 대화를 양방향으로 변환합니다(`tool_use`/
 
 카탈로그에 없는 경로는 인용할 수 없습니다. 3주차에 툴이 추가되면 카탈로그도 함께 늘립니다.
 
+**지리 툴 경로** (#52): `/previous/*`(직전 거래와의 경과 초·가맹점 간 거리·환산 이동 속도·기준 초과)와 `/target/home_distance_km`, `/target/far_from_home`, `/basis/*_threshold_*`를 카탈로그에 추가했습니다. 라벨은 "가맹점과의 거리", "환산 이동 속도"처럼 가맹점 좌표 기준임을 드러내고 고객의 위치라고 쓰지 않습니다. 거래 이력용 기간 라벨(`N일 비교 기간`)은 붙이지 않습니다. `insufficient` 결과는 `previous`가 `null`이라 `/previous/*` 인용은 V3(경로 오류)로 거부됩니다. 중복 판정은 툴별 `lookback_days` 기본값(거래 이력 90, 지리 30)으로 정규화합니다.
+
 **표시값의 출처** (#40): 렌더링은 모델이 인용한 값이 아니라 검증을 통과한 근거의 **스냅샷 실제 값**으로 합니다. V4는 숫자를 수치로 비교하므로(`10` = `10.0`) 인용 값으로 그리면 툴이 준 표기가 모델 표기로 바뀝니다(27B r2: `[… 10배]`). 보고서 원본(`report`)의 인용 값은 감사용으로 그대로 둡니다.
 
 **조회 기간 표시** (#36): 근거 ID의 기간(`EV-TH-<대상>-<N>d`)을 읽어, 기간에 따라 값이 달라지는 경로(`/stats/*`, `/target_category/*`, `/category_distribution/*`, `/recent_transactions/*`)의 구절에 기간을 붙입니다. 예: `[90일 비교 기간 평균 대비 10.0배]`, `[365일 비교 기간 최댓값 이하]`. `/target/*`(대상 거래 자체)와 `/basis/*`(기준 정보)는 그대로입니다. 27B `high` 보고서는 90일·365일 근거를 같은 라벨로 표시해 조사역이 기간을 구분할 수 없었습니다. 기간은 모델 문장이 아니라 근거 ID에서 읽으므로, 모델이 "장기"라고 잘못 써도 표시되는 기간은 틀리지 않습니다.
@@ -317,6 +319,7 @@ OpenAI 호환 어댑터는 대화를 양방향으로 변환합니다(`tool_use`/
 | V7 | 문장·요약에 수량을 나타내는 한글 표현이 없음 (예: 두 배, 절반, 열 건). 수사는 단어 첫머리에서만 세고("모두 일치"의 "두 일"은 제외), 단위 "일" 뒤에 한글이 붙은 낱말(일치, 일부)은 제외합니다(#48) | `NUMBER_WORD_USED` |
 | V8 | 발견 사항의 **모든** `evidence[i]`가 문장에 `{i}`로 나타남. 문장에 드러나지 않는 근거는 조사역이 어떤 값이 근거인지 확인할 수 없음 (#30) | `EVIDENCE_NOT_REFERENCED` |
 | V9 | 방향이 정해진 근거의 값이 `kind`와 맞음 (휴리스틱, gap 제외): `target_exceeds_max` true는 suspicion·false는 counter, `target_category/seen_before` false는 suspicion·true는 counter, counter는 대상 업종과 **다른** `category_distribution/N/category`를 인용할 수 없음 (#30) | `POLARITY_CONFLICT` |
+| V9 (지리, #52) | `/previous/exceeds_plausible_speed`, `/target/far_from_home`: true는 suspicion, false는 counter. 지리 근거는 거래 이력의 표본 부족(V9 보강)과 무관하므로, 이력이 insufficient여도 suspicion으로 인용할 수 있습니다 | `POLARITY_CONFLICT` |
 | V9 보강 | 근거 결과의 `status`가 `empty`·`insufficient`이면 이력 기반 필드(`/stats/*`, `/target_category/*`, `/category_distribution/*`, `/recent_transactions/*`)는 suspicion·counter에 인용할 수 없고 gap에서만 인용 (PR #31 리뷰). 이력이 비어 `seen_before=false`인 것은 "처음 쓰는 업종"이 아니라 "확인할 이력 없음"이기 때문입니다. `/target/*`는 대상 거래 자체라 제한하지 않습니다 | `SPARSE_HISTORY_DIRECTION` |
 | V10 | 한 발견 사항 안에서 같은 툴·같은 대상의 서로 다른 조회 기간(`-90d`, `-365d`) 근거를 섞지 않음. 기간마다 값의 의미가 달라 한 문장의 근거로 묶으면 해석이 섞임 (#30) | `MIXED_LOOKBACK` |
 
