@@ -57,8 +57,10 @@ async def test_baseline_then_submit_reports(db):
 
 
 async def test_additional_lookup_then_cite_it(db):
-    report = high_report(findings=[{"kind": "suspicion", "statement": "짧은 기간에서도 {0}입니다.",
-                                    "evidence": [{"evidence_id": "EV-TH-high-7d", "path": "/stats/txn_count", "value": 4}]}])
+    # 7일 결과는 표본 부족(insufficient)이므로 gap으로 인용 (PR #31 리뷰: 부족한 이력은 방향을 정하지 못함)
+    report = high_report(findings=[{"kind": "gap", "statement": "짧은 기간 표본은 {0}입니다.",
+                                    "evidence": [{"evidence_id": "EV-TH-high-7d", "path": "/stats/txn_count", "value": 4}]}],
+                         recommendation="insufficient_evidence")
     model = FakeModel(respond(history("high", 7)), respond(submit(report)))
     r = await run(db, model)
     assert r.outcome.status == "reported", r.outcome

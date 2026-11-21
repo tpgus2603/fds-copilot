@@ -18,7 +18,7 @@ from fds_investigator.agent.verify import verify_report
 from fds_investigator.load_csv import load
 
 ROOT = Path(__file__).resolve().parents[2]
-NEW_CODES = {"EVIDENCE_NOT_REFERENCED", "MIXED_LOOKBACK", "POLARITY_CONFLICT"}
+NEW_CODES = {"EVIDENCE_NOT_REFERENCED", "MIXED_LOOKBACK", "POLARITY_CONFLICT", "SPARSE_HISTORY_DIRECTION"}
 
 
 @pytest.fixture(scope="module")
@@ -136,3 +136,51 @@ async def test_loop_marks_9b_style_report_incomplete(db):
     bad = REJECT["no-placeholder-9b"][0]
     r = await investigate("high", FakeModel(respond(submit(bad))), lambda x: McpToolSession(x, db), "fake", Limits())
     assert (r.outcome.status, r.outcome.reason) == ("incomplete", "EVIDENCE_NOT_REFERENCED")
+
+
+
+# ---------- 빈·부족 이력의 방향 판정 금지 (PR #31 리뷰) ----------
+
+@pytest.fixture(scope="module")
+def sparse_snaps(db) -> dict[str, dict]:
+    async def collect() -> dict[str, dict]:
+        r = await investigate("new", FakeModel(respond(submit(high_report()))), lambda x: McpToolSession(x, db),
+                              "fake", Limits())
+        return r.tool_results
+    snaps = asyncio.run(collect())
+    assert snaps["EV-TH-new-90d"]["status"] == "empty"
+    return snaps
+
+
+NEW90 = "EV-TH-new-90d"
+
+
+def test_empty_history_cannot_be_sole_suspicion(sparse_snaps):
+    # Codex 재현: new의 seen_before=false 하나로 further_review_recommended → 이전에는 reported
+    rep = report(f("suspicion", "대상 업종은 {0}입니다.", ev(NEW90, SEEN, False)))
+    r = verify_report(rep, sparse_snaps)
+    assert not r.ok and r.code == "SPARSE_HISTORY_DIRECTION"
+
+
+def test_empty_history_cannot_be_counter(sparse_snaps):
+    rep = report(f("counter", "비교 거래는 {0}입니다.", ev(NEW90, "/stats/txn_count", 0)), rec="no_anomaly_found")
+    assert verify_report(rep, sparse_snaps).code == "SPARSE_HISTORY_DIRECTION"
+
+
+def test_empty_history_is_fine_as_gap_and_target_fields_still_directional(sparse_snaps):
+    ok = report(f("gap", "비교 이력이 {0}이고 {1}입니다.", ev(NEW90, "/stats/txn_count", 0), ev(NEW90, SEEN, False)),
+                rec="insufficient_evidence")
+    assert verify_report(ok, sparse_snaps).ok
+    # 대상 거래 자체의 필드는 이력과 무관하므로 제한하지 않음 (다른 규칙만 적용)
+    target_only = report(f("gap", "대상 업종은 {0}입니다.", ev(NEW90, "/target/category", "grocery_pos")),
+                         rec="insufficient_evidence")
+    assert verify_report(target_only, sparse_snaps).ok
+
+
+def test_insufficient_status_is_treated_like_empty():
+    from fds_investigator.agent.verify import _sparse_history_direction
+    snap = {"status": "insufficient"}
+    assert _sparse_history_direction("suspicion", "/target_category/seen_before", snap)
+    assert _sparse_history_direction("gap", "/target_category/seen_before", snap) is None
+    assert _sparse_history_direction("suspicion", "/target/amount", snap) is None
+    assert _sparse_history_direction("suspicion", "/stats/txn_count", {"status": "ok"}) is None
