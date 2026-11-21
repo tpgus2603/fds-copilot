@@ -30,3 +30,56 @@ def test_paths_outside_catalog(path):
 def test_render_statement_uses_evidence_order():
     ev = [{"path": "/stats/txn_count", "value": 5}, {"path": "/stats/target_exceeds_max", "value": True}]
     assert render_statement("{1}, {0}", ev) == "[비교 기간 최댓값 초과], [비교 기간 거래 5건]"
+
+
+# ---------- 조회 기간 표시 (#36) ----------
+
+def _e(eid, path, value):
+    return {"evidence_id": eid, "path": path, "value": value}
+
+
+@pytest.mark.parametrize("ref,expected", [
+    (_e("EV-TH-high-90d", "/stats/target_to_mean_ratio", 10.0), "90일 비교 기간 평균 대비 10.0배"),
+    (_e("EV-TH-high-365d", "/stats/target_to_mean_ratio", 1.71), "365일 비교 기간 평균 대비 1.71배"),
+    (_e("EV-TH-high-365d", "/stats/target_exceeds_max", False), "365일 비교 기간 최댓값 이하"),
+    (_e("EV-TH-high-90d", "/target_category/seen_before", False), "90일 비교 기간 내 이용 이력 없음"),
+    (_e("EV-TH-high-90d", "/stats/target_to_mean_ratio", None), "90일 비교 기간 평균 대비 비율 계산 불가"),
+    # "비교 기간"이 없는 기간 의존 구절에는 앞에 붙임
+    (_e("EV-TH-high-90d", "/category_distribution/0/category", "grocery_pos"), "90일 비교 기간 업종 grocery_pos"),
+    (_e("EV-TH-high-365d", "/recent_transactions/0/amount", "900.00"), "365일 비교 기간 최근 거래 금액 900.00"),
+    # 기간과 무관한 경로는 그대로
+    (_e("EV-TH-high-365d", "/target/category", "shopping_net"), "대상 업종 shopping_net"),
+    (_e("EV-TH-high-365d", "/basis/lookback_days", 365), "비교 기간 365일"),
+    # 근거 ID가 없으면(단위 테스트용 근거) 기존 라벨
+    ({"path": "/stats/txn_count", "value": 5}, "비교 기간 거래 5건"),
+])
+def test_period_is_shown_from_evidence_id(ref, expected):
+    from fds_investigator.agent.render import render_evidence
+    assert render_evidence(ref) == expected
+
+
+def test_27b_high_case_periods_are_distinguishable():
+    stmt = "대상 금액이 {0}입니다."
+    short = render_statement(stmt, [_e("EV-TH-high-90d", "/stats/target_to_mean_ratio", 10.0)])
+    long = render_statement(stmt, [_e("EV-TH-high-365d", "/stats/target_to_mean_ratio", 1.71)])
+    assert "90일" in short and "365일" in long
+
+
+
+# ---------- 기간은 라벨에만 (PR #37 리뷰) ----------
+
+@pytest.mark.parametrize("path,value,expected", [
+    ("/recent_transactions/0/merchant_name", "비교 기간 상점", "90일 비교 기간 최근 거래 가맹점 비교 기간 상점"),
+    ("/category_distribution/0/category", "비교 기간", "90일 비교 기간 업종 비교 기간"),
+    ("/target_category/last_seen_at", "2020-06-21T11:59:59", "90일 비교 기간 같은 업종 최근 이용 2020-06-21T11:59:59"),
+    ("/stats/target_exceeds_max", None, "90일 비교 기간 정보 없음"),
+], ids=["codex-merchant", "category-value", "last-seen", "bool-none"])
+def test_period_goes_into_label_only(path, value, expected):
+    from fds_investigator.agent.render import render_evidence
+    assert render_evidence(_e("EV-TH-x-90d", path, value)) == expected
+
+
+def test_value_text_is_unchanged_without_period():
+    from fds_investigator.agent.render import render_evidence
+    assert render_evidence({"path": "/recent_transactions/0/merchant_name", "value": "비교 기간 상점"}) == \
+        "최근 거래 가맹점 비교 기간 상점"

@@ -9,7 +9,7 @@ from fds_investigator.agent.prompts import (
     SYSTEM_PROMPT,
     citable_paths,
 )
-from fds_investigator.agent.render import renderer_for
+from fds_investigator.agent.render import render_evidence, renderer_for
 
 
 def test_every_example_path_is_citable():
@@ -18,14 +18,16 @@ def test_every_example_path_is_citable():
 
 
 def test_prompt_shows_actual_rendered_phrases():
+    # 예시는 프롬프트가 쓰는 근거 ID(90일) 기준으로 렌더링한 결과와 같아야 함
     for path, value in EXAMPLE_EVIDENCE:
-        assert f"[{renderer_for(path)(value)}]" in SYSTEM_PROMPT, path
+        phrase = render_evidence({"evidence_id": "EV-TH-x-90d", "path": path, "value": value})
+        assert f"[{phrase}]" in SYSTEM_PROMPT, path
 
 
 def test_good_and_bad_examples_render_as_described():
-    assert "[비교 기간 평균 대비 10.0배]이며 [비교 기간 최댓값 초과]입니다." in SYSTEM_PROMPT
+    assert "[90일 비교 기간 평균 대비 10.0배]이며 [90일 비교 기간 최댓값 초과]입니다." in SYSTEM_PROMPT
     # 나쁜 예는 실제로 단위가 겹친 결과를 보여 줘야 의미가 있음
-    assert "[비교 기간 평균 대비 10.0배]배" in SYSTEM_PROMPT
+    assert "[90일 비교 기간 평균 대비 10.0배]배" in SYSTEM_PROMPT
     assert "{0}" in GOOD_EXAMPLE[0] and "{0}배" in BAD_EXAMPLE[0]
 
 
