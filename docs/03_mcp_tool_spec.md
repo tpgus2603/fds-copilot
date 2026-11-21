@@ -293,9 +293,9 @@ p95 계산 방식을 명시한 이유는 방식마다 결과가 다르기 때문
   "evidence_id": "EV-GA-geo-30d",
   "basis": {"as_of": "2020-06-21T12:00:00", "lookback_days": 30, "speed_threshold_kmh": 900, "home_distance_threshold_km": 300},
   "target": {"transaction_id": "geo", "trans_at": "2020-06-21T12:00:00", "merchant_name": "Synthetic Shop",
-             "home_distance_km": 3935.7, "far_from_home": true},
+             "home_distance_km": 3936.1, "far_from_home": true},
   "previous": {"transaction_id": "geoprior", "trans_at": "2020-06-21T11:50:00", "merchant_name": "Synthetic Shop",
-               "minutes_since": 10, "distance_km": 3935.7, "speed_kmh": 23614.2, "exceeds_plausible_speed": true}
+               "minutes_since": 10, "distance_km": 3936.1, "speed_kmh": 23616.4, "exceeds_plausible_speed": true}
 }
 ```
 
