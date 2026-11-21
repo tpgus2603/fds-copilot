@@ -17,7 +17,7 @@ from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 
-from .geo import haversine_km, round_km
+from .geo import haversine_km, store_km
 from .repository import SCHEMA_SQL, TS_FORMAT
 
 REQUIRED = ("trans_date_trans_time", "cc_num", "merchant", "category", "amt", "trans_num")
@@ -53,7 +53,7 @@ def load(csv_path: Path, db_path: Path, salt: str = DEV_SALT) -> int:
             trans_at = datetime.strptime(r["trans_date_trans_time"], "%Y-%m-%d %H:%M:%S")
             m_lat, m_lon = _coord(r.get("merch_lat")), _coord(r.get("merch_long"))
             h_lat, h_lon = _coord(r.get("lat")), _coord(r.get("long"))
-            home_km = (str(round_km(haversine_km(h_lat, h_lon, m_lat, m_lon)))
+            home_km = (store_km(haversine_km(h_lat, h_lon, m_lat, m_lon))
                        if None not in (m_lat, m_lon, h_lat, h_lon) else None)
             rows.append(
                 (

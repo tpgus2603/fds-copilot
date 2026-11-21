@@ -26,6 +26,15 @@ def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return 2 * EARTH_RADIUS_KM * math.asin(min(1.0, math.sqrt(a)))
 
 
+_STORE_Q = Decimal("0.000001")   # 저장 정밀도 1mm: 판정은 이 값으로, 표시는 0.1km
+
+
+def store_km(value: float) -> str:
+    """적재용 거리 문자열. 표시용 반올림을 저장 단계에서 하지 않습니다(Gemini 리뷰 #51: 300.04km가 300.0으로
+    저장되어 기준 초과가 '이하'로 뒤집힘). 판정은 반올림 전 값, 반올림은 결과를 만들 때 한 번만 합니다."""
+    return str(Decimal(str(value)).quantize(_STORE_Q, rounding=ROUND_HALF_UP))
+
+
 def round_km(value: float | Decimal) -> Decimal:
     """소수 첫째 자리 반올림(ROUND_HALF_UP). float를 문자열로 거쳐 이진 표현 오차가 반올림을 바꾸지 않게 합니다."""
     return Decimal(str(value)).quantize(_KM_Q, rounding=ROUND_HALF_UP)
@@ -54,14 +63,16 @@ def build_geo_result(target: Transaction, previous: Transaction | None, lookback
     home = target.home_distance_km
     prev_block = None
     if previous is not None and _has_coords(previous) and _has_coords(target):
-        minutes = Decimal((target.trans_at - previous.trans_at).total_seconds()) / 60
+        # 경과 시간은 정수 초로 냅니다. 분으로 반올림하면 1~2초 간격(연속 결제, FDS 핵심 구간)이 0분이 되어
+        # 출력 계약(1 이상)을 어기고 INTERNAL로 바뀌었습니다(Gemini 리뷰 #51). 원천 시각이 초 단위라 반올림이 필요 없습니다.
+        seconds = int((target.trans_at - previous.trans_at).total_seconds())
         km = haversine_km(previous.merch_lat, previous.merch_long, target.merch_lat, target.merch_long)
-        speed = Decimal(str(km)) / (minutes / 60)
+        speed = Decimal(str(km)) * 3600 / seconds
         prev_block = {
             "transaction_id": previous.transaction_id,
             "trans_at": previous.trans_at.strftime(TS_FORMAT),
             "merchant_name": previous.merchant_name,
-            "minutes_since": _num(round_km(minutes)),
+            "seconds_since": seconds,
             "distance_km": _num(round_km(km)),
             "speed_kmh": _num(round_km(speed)),
             # 기준은 반올림 전 값으로 판정합니다. 표시값 반올림이 판정을 바꾸지 않게 하기 위해서입니다.
@@ -83,6 +94,7 @@ def build_geo_result(target: Transaction, previous: Transaction | None, lookback
             "trans_at": target.trans_at.strftime(TS_FORMAT),
             "merchant_name": target.merchant_name,
             "home_distance_km": None if home is None else _num(round_km(home)),
+            # 저장값은 반올림 전 정밀도(1mm)이므로 판정도 반올림 전 값으로 합니다 (표시만 0.1km)
             "far_from_home": None if home is None else home > HOME_DISTANCE_THRESHOLD_KM,
         },
         "previous": prev_block,

@@ -144,7 +144,7 @@
         "transaction_id",
         "trans_at",
         "merchant_name",
-        "minutes_since",
+        "seconds_since",
         "distance_km",
         "speed_kmh",
         "exceeds_plausible_speed"
@@ -159,9 +159,10 @@
         "merchant_name": {
           "type": "string"
         },
-        "minutes_since": {
-          "type": "number",
-          "exclusiveMinimum": 0
+        "seconds_since": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "직전 거래 이후 경과 시간(초). 원천 시각이 초 단위라 반올림하지 않음. 같은 초는 직전 거래에서 제외되므로 1 이상"
         },
         "distance_km": {
           "$ref": "#/$defs/km"

@@ -70,7 +70,7 @@ def test_impossible_travel_is_flagged():
     prev = at(txn("P", "20.00", at=BASE - timedelta(minutes=10)), NY)
     out = valid(build_geo_result(TARGET, prev, 30, "1.0"))
     p = out["previous"]
-    assert out["status"] == "ok" and p["transaction_id"] == "P" and p["minutes_since"] == 10
+    assert out["status"] == "ok" and p["transaction_id"] == "P" and p["seconds_since"] == 600
     assert 3930 < p["distance_km"] < 3945 and p["speed_kmh"] > 20000 and p["exceeds_plausible_speed"] is True
     assert out["target"]["far_from_home"] is True and out["evidence_id"] == "EV-GA-T0-30d"
 
@@ -192,3 +192,39 @@ async def test_fixture_cases_over_stdio(fixture_db):
     new = await _geo_call(fixture_db, "new")
     assert new["status"] == "insufficient" and new["previous"] is None
     assert "40.71" not in str(geo) and "-74.0" not in str(geo)            # 거주지 좌표는 결과에 없음
+
+
+
+# ---------- Gemini 리뷰 #51 ----------
+
+@pytest.mark.parametrize("gap_seconds", [1, 2, 29, 31])
+def test_consecutive_payments_seconds_apart_are_valid_results(gap_seconds):
+    # 1~2초 간격 연속 결제: 이전에는 minutes_since가 0으로 반올림되어 출력 계약 위반 → INTERNAL
+    prev = at(txn("P", "1.00", at=BASE - timedelta(seconds=gap_seconds)), NY)
+    p = valid(build_geo_result(TARGET, prev, 30, "1.0"))["previous"]
+    assert p["seconds_since"] == gap_seconds and p["exceeds_plausible_speed"] is True
+
+
+def test_home_distance_threshold_uses_unrounded_stored_value(tmp_path):
+    # 실제 300.04km: 저장값은 반올림하지 않고, 표시는 300, 판정은 초과 (속도 판정과 같은 원칙)
+    from fds_investigator.geo import store_km
+    assert store_km(300.04) == "300.040000" and store_km(0.0000004) == "0.000000"
+    target = at(txn("T3", "1.00", at=BASE), NY, store_km(300.04))
+    out = valid(build_geo_result(target, None, 30, "1.0"))
+    assert out["target"]["home_distance_km"] == 300 and out["target"]["far_from_home"] is True
+    target = at(txn("T4", "1.00", at=BASE), NY, store_km(299.96))
+    out = valid(build_geo_result(target, None, 30, "1.0"))
+    assert out["target"]["home_distance_km"] == 300 and out["target"]["far_from_home"] is False
+
+
+def test_loader_stores_distance_with_full_precision(tmp_path):
+    import sqlite3
+
+    from conftest import write_kaggle_csv
+    csv_path = write_kaggle_csv(tmp_path / "p.csv", [{
+        "trans_date_trans_time": "2019-01-01 00:00:18", "cc_num": "1", "merchant": "fraud_A", "category": "misc_net",
+        "amt": "1.00", "trans_num": "p1", "lat": "40.0", "long": "-74.0", "merch_lat": "42.7", "merch_long": "-74.0"}])
+    db = tmp_path / "p.db"
+    load(csv_path, db)
+    (stored,) = sqlite3.connect(db).execute("SELECT home_distance_km FROM transactions").fetchone()
+    assert len(stored.split(".")[1]) == 6          # 1mm 정밀도로 저장 (0.1km 반올림은 표시 단계에서만)
