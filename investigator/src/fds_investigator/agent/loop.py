@@ -25,7 +25,7 @@ from .prompts import (
 )
 from .render import render_statement
 from .tool_session import ToolCallResult, ToolSession
-from .verify import verify_report
+from .verify import resolve_pointer, verify_report
 
 HISTORY_TOOL = "get_transaction_history"
 BASELINE_LOOKBACK = 90
@@ -181,6 +181,9 @@ async def investigate(
             await asyncio.sleep(min(TOOL_RETRY_WAIT, remaining()))
         raise AssertionError("unreachable")
 
+    def _display_evidence(evidence: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return [{**e, "value": resolve_pointer(snapshots[e["evidence_id"]], e["path"])} for e in evidence]
+
     async def run_loop(session: ToolSession) -> None:
         repairs_scheduled, repair_pending = 0, False     # 4.4 수정 요청: 예약 수, 다음 생성 요청에 실릴 피드백 여부
         # 1. 기본 증거: 코드가 결정적으로 수집 (2.2). empty·insufficient는 정상 진행, error만 중단.
@@ -297,7 +300,9 @@ async def investigate(
                     continue
                 result.rendered = {
                     "summary": report["summary"],
-                    "findings": [{"kind": f["kind"], "text": render_statement(f["statement"], f["evidence"]),
+                    # 표시값은 모델 인용이 아니라 스냅샷의 실제 값입니다(#40). V4는 10 = 10.0처럼 수치로 비교하므로,
+                    # 인용 값으로 그리면 툴이 준 표기(10.0)가 모델 표기(10)로 바뀝니다.
+                    "findings": [{"kind": f["kind"], "text": render_statement(f["statement"], _display_evidence(f["evidence"])),
                                   "evidence": [f"{result.run_id}/{e['evidence_id']}#{e['path']}" for e in f["evidence"]]}
                                  for f in report["findings"]],
                     "recommendation": report["recommendation"],

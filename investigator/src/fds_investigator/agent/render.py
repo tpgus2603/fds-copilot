@@ -94,7 +94,8 @@ def renderer_for(path: str) -> Renderer | None:
 
 # 조회 기간에 따라 값이 달라지는 경로 (#36). /target/*(대상 거래 자체)와 /basis/*(기준 정보)는 제외합니다.
 PERIOD_SCOPED = ("/stats/", "/target_category/", "/category_distribution/", "/recent_transactions/")
-_PERIOD = re.compile(r"-([0-9]{1,3})d$")
+# 근거 ID 형식 EV-<툴>-<대상>-<기간>d. 검증 V10과 기간 라벨이 같은 정의를 씁니다 (Gemini 리뷰 #37).
+EVIDENCE_ID = re.compile(r"^(EV-[A-Z]{2}-[A-Za-z0-9]{1,64})-([0-9]{1,3})d$")
 
 
 def render_evidence(ref: dict[str, Any]) -> str:
@@ -106,8 +107,8 @@ def render_evidence(ref: dict[str, Any]) -> str:
     """
     fn = renderer_for(ref["path"])
     assert fn is not None
-    m = _PERIOD.search(ref.get("evidence_id", ""))
-    period = int(m.group(1)) if m and ref["path"].startswith(PERIOD_SCOPED) else None
+    m = EVIDENCE_ID.match(ref.get("evidence_id", ""))
+    period = int(m.group(2)) if m and ref["path"].startswith(PERIOD_SCOPED) else None
     return fn(ref["value"], period)
 
 
