@@ -48,7 +48,8 @@ BACKENDS: dict[str, tuple[str, str, str, bool | None]] = {
 # 샘플링 프리셋 (#32). server는 아무것도 보내지 않아 서버 기본값을 따릅니다.
 # qwen-instruct: Unsloth Qwen3.5 문서의 비사고(instruct) 모드 일반 작업 권장값. presence_penalty는
 # 같은 출력의 반복(한 응답에 같은 submit_report를 되풀이하는 현상)을 줄이기 위한 값입니다.
-# top_k, min_p는 OpenAI 표준 필드가 아니지만 llama-server, vLLM, Ollama /v1이 받습니다.
+# top_k, min_p는 OpenAI 표준 필드가 아닙니다. llama-server에서 확인했으며, 다른 서버는 지원 목록에 명시하지
+# 않으므로 기본으로 보내지 않습니다(BACKENDS, PR #33 리뷰). 필요하면 --sampling으로 명시 선택합니다.
 SAMPLING_PRESETS: dict[str, dict[str, float | int]] = {
     "server": {},
     "qwen-instruct": {"temperature": 0.7, "top_p": 0.8, "top_k": 20, "min_p": 0.0, "presence_penalty": 1.5},

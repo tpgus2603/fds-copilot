@@ -48,3 +48,7 @@ def test_sample_size_rule_has_gap_example():
 
 def test_summary_forbids_placeholders():
     assert "요약(summary)에는 근거가 연결되지 않으므로" in SYSTEM_PROMPT
+
+
+def test_placeholder_numbering_restarts_per_finding():
+    assert "번호는 발견 사항마다 {0}부터 다시 셉니다" in SYSTEM_PROMPT

@@ -47,4 +47,4 @@ Kaggle [`kartik2112/fraud-detection`](https://www.kaggle.com/datasets/kartik2112
 
 ## 개발 방식
 
-이 프로젝트는 Claude와 Codex를 개발 워크플로에 통합해 진행합니다. 작업 규칙은 `AGENTS.md`에 있으며, 모든 변경은 PR과 CI 검증, 사람의 최종 병합을 거칩니다.
+이 프로젝트는 AI 에이전트를 개발 워크플로에 통합해 진행합니다. Claude가 구현하고 다른 에이전트가 교차 리뷰합니다(#20~#39는 Codex, 2026-11-20부터 Gemini). 작업 규칙은 `AGENTS.md`에 있으며, 모든 변경은 PR과 CI 검증, 사람의 최종 병합을 거칩니다.
