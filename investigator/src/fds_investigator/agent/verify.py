@@ -18,8 +18,11 @@ _SCHEMA_PATH = Path(__file__).resolve().parents[4] / "contracts" / "agent" / "re
 _MISSING = object()
 
 # V7: 한글 수량 표현 (보조 휴리스틱). 목록에 없는 표현은 놓칠 수 있습니다.
+# 수사는 단어 첫머리에서만 셉니다. 앞 글자가 한글이면 다른 낱말의 일부입니다(평가 v0 오탐: "모두 일치"의 "두 일",
+# "금액만 일치"의 "만 일"). 단위 "일" 뒤에 한글이 붙으면 낱말(일치, 일부, 일반)이므로 날짜 단위로 보지 않습니다.
 _NUMBER_WORDS = re.compile(
-    r"(한|두|세|네|다섯|여섯|일곱|여덟|아홉|열|스무|서른|마흔|쉰|백|천|만)\s*(배|건|번|개|일|달|시간|분|초|퍼센트|프로)"
+    r"(?<![가-힣])(한|두|세|네|다섯|여섯|일곱|여덟|아홉|열|스무|서른|마흔|쉰|백|천|만)\s*"
+    r"(배|건|번|개|일(?![치부반상정어자원])|달|시간|분|초|퍼센트|프로)"
     r"|절반|반절|수십|수백|수천|수만|몇\s*배"
 )
 
@@ -66,6 +69,29 @@ MAX_SCHEMA_FAILURES = 10
 FAILURE_CODES = ["REPORT_SCHEMA_INVALID", "EVIDENCE_NOT_FOUND", "EVIDENCE_PATH_INVALID", "EVIDENCE_VALUE_MISMATCH",
                  "PLACEHOLDER_INVALID", "ERROR_RESULT_CITED", "NUMBER_WORD_USED",
                  "EVIDENCE_NOT_REFERENCED", "MIXED_LOOKBACK", "POLARITY_CONFLICT", "SPARSE_HISTORY_DIRECTION"]
+
+
+def _shape_ok(report: Any) -> bool:
+    """V2~V10이 전제하는 모양인지. 스키마 위반이 있어도 이 모양이면 뒤 검사를 계속해 실패를 모두 모읍니다.
+
+    권고-발견 사항 일치(allOf)나 허용 값(enum) 위반은 보고서 모양을 깨지 않습니다. 이런 위반에서 멈추면
+    수정 요청에 실패 일부만 실려, 모델이 그것만 고친 뒤 처음부터 있던 다른 실패로 다시 떨어집니다
+    (평가 v0 new 관찰). 판정은 위반 종류를 추측하지 않고 뒤 검사가 읽는 필드의 타입을 직접 확인합니다.
+    """
+    if not isinstance(report, dict) or not isinstance(report.get("summary"), str):
+        return False
+    findings = report.get("findings")
+    if not isinstance(findings, list):
+        return False
+    for f in findings:
+        if not (isinstance(f, dict) and isinstance(f.get("kind"), str) and isinstance(f.get("statement"), str)
+                and isinstance(f.get("evidence"), list)):
+            return False
+        for e in f["evidence"]:
+            if not (isinstance(e, dict) and isinstance(e.get("evidence_id"), str) and isinstance(e.get("path"), str)
+                    and "value" in e):
+                return False
+    return True
 
 
 def report_schema() -> dict:
@@ -127,7 +153,7 @@ def verify_report(report: Any, snapshots: dict[str, dict]) -> VerificationResult
     # 문장·요약의 문자 패턴 위반(숫자·자리표시자)은 구조 오류가 아니므로 V2~V10을 계속 검사해 실패를 모두 모읍니다.
     # 첫 실패에서 멈추면 수정 요청(4.4)이 일부 위치만 알려 주게 되고, 모델이 그것만 고친 뒤 다음 검증에서
     # 처음부터 있던 다른 실패로 다시 떨어집니다(27B r1 관찰). 구조 오류는 이후 검사가 전제를 잃으므로 멈춥니다.
-    if structural:
+    if structural and not _shape_ok(report):
         return VerificationResult(False, "REPORT_SCHEMA_INVALID", failures)
     if chars := numeric_chars(report["summary"], allow_placeholders=False):
         fail("REPORT_SCHEMA_INVALID", "/summary", f"숫자 문자 {chars[:3]}", "pattern")

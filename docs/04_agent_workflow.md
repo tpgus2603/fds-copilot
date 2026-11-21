@@ -314,7 +314,7 @@ OpenAI 호환 어댑터는 대화를 양방향으로 변환합니다(`tool_use`/
 | V4 | `value`가 그 위치의 실제 값과 같음. **먼저 JSON 타입이 같아야** 하고(불리언과 숫자는 다른 타입: `false` ≠ `0`), 숫자끼리는 수치로(`10` = `10.0`), 문자열은 정확히(`"30.00"` ≠ `"30.0"`) 비교 | `EVIDENCE_VALUE_MISMATCH` |
 | V5 | 모든 자리표시자 `{n}`이 그 발견 사항의 `evidence` 범위 안을 가리킴 | `PLACEHOLDER_INVALID` |
 | V6 | `error` 상태인 툴 결과를 `suspicion`·`counter`의 근거로 쓰지 않음 | `ERROR_RESULT_CITED` |
-| V7 | 문장·요약에 수량을 나타내는 한글 표현이 없음 (예: 두 배, 절반, 열 건) | `NUMBER_WORD_USED` |
+| V7 | 문장·요약에 수량을 나타내는 한글 표현이 없음 (예: 두 배, 절반, 열 건). 수사는 단어 첫머리에서만 세고("모두 일치"의 "두 일"은 제외), 단위 "일" 뒤에 한글이 붙은 낱말(일치, 일부)은 제외합니다(#48) | `NUMBER_WORD_USED` |
 | V8 | 발견 사항의 **모든** `evidence[i]`가 문장에 `{i}`로 나타남. 문장에 드러나지 않는 근거는 조사역이 어떤 값이 근거인지 확인할 수 없음 (#30) | `EVIDENCE_NOT_REFERENCED` |
 | V9 | 방향이 정해진 근거의 값이 `kind`와 맞음 (휴리스틱, gap 제외): `target_exceeds_max` true는 suspicion·false는 counter, `target_category/seen_before` false는 suspicion·true는 counter, counter는 대상 업종과 **다른** `category_distribution/N/category`를 인용할 수 없음 (#30) | `POLARITY_CONFLICT` |
 | V9 보강 | 근거 결과의 `status`가 `empty`·`insufficient`이면 이력 기반 필드(`/stats/*`, `/target_category/*`, `/category_distribution/*`, `/recent_transactions/*`)는 suspicion·counter에 인용할 수 없고 gap에서만 인용 (PR #31 리뷰). 이력이 비어 `seen_before=false`인 것은 "처음 쓰는 업종"이 아니라 "확인할 이력 없음"이기 때문입니다. `/target/*`는 대상 거래 자체라 제한하지 않습니다 | `SPARSE_HISTORY_DIRECTION` |
@@ -340,7 +340,7 @@ OpenAI 호환 어댑터는 대화를 양방향으로 변환합니다(`tool_use`/
 | 전달하지 않는 것 | 고친 문장이나 근거. 무엇을 어떻게 고칠지는 모델이 근거를 다시 보고 판단합니다 |
 | 수정 후 동작 | 다시 `submit_report`를 내도 되고, 조회를 더 한 뒤 제출해도 됩니다. 모델 호출·툴 호출 상한, 단일 마감, 토큰 사전 검사는 그대로 적용됩니다 |
 | 다시 실패하면 | 두 번째 검증의 사유 코드로 미완료 |
-| 실패 목록의 범위 | 요약·문장의 문자 패턴 위반(숫자, 요약의 자리표시자)은 구조 오류가 아니므로 V2~V10까지 계속 검사해 **모든 실패를 한 번에** 전달합니다. 보고서 구조가 깨진 경우(필드 누락, 형식 불일치)만 V1에서 멈추며, 이때 **구조 오류를 먼저** 싣고 상한(10건)을 넘으면 생략 수를 남깁니다(PR #39 리뷰) |
+| 실패 목록의 범위 | 요약·문장의 문자 패턴 위반(숫자, 요약의 자리표시자)은 구조 오류가 아니므로 V2~V10까지 계속 검사해 **모든 실패를 한 번에** 전달합니다. 보고서 모양이 깨진 경우(V2~V10이 읽는 필드의 타입이 맞지 않음)만 V1에서 멈추며, 권고-발견 사항 일치(`allOf`)나 허용 값 위반은 모양을 깨지 않으므로 계속 검사합니다(#48, 평가 v0 `new` 관찰). 이때 **구조 오류를 먼저** 싣고 상한(10건)을 넘으면 생략 수를 남깁니다(PR #39 리뷰) |
 | 수정 지시 | "failures에 적힌 위치만 고치고 나머지는 그대로 두라"고 요청합니다 |
 | 기록 | `first_submission_ok`(첫 제출 통과 여부, 제출이 없으면 `null`), `usage.report_submissions`, `usage.report_repairs`(피드백을 담은 생성 요청을 **실제로 보낸** 횟수), `usage.repair_tool_calls`(수정 요청 이후 조회 수), 단계 `repair_scheduled`(예약)·`repair_requested`(전송) |
 | 지표 분모 | 첫 제출 통과율 = `first_submission_ok = true` / 제출이 있었던 실행. 제출이 없던 실행(`null`)은 분모에서 빼고 따로 셉니다. 최종 보고율의 분모는 전체 실행입니다 |

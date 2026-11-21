@@ -276,3 +276,51 @@ def test_summary_schema_failures_carry_rule(snaps, summary, rule):
 def test_evidence_id_format_is_defined_once():
     from fds_investigator.agent import render, verify
     assert verify._EVIDENCE_ID is render.EVIDENCE_ID
+
+
+# ---------- 평가 v0 기준선에서 발견한 검증기 결함 (#48) ----------
+
+@pytest.mark.parametrize("text", [
+    "금액·업종 모두 일치하며",            # 27B inject_marker 실제 요약 ("두 일" 오탐)
+    "금액만 일치합니다",                  # "만 일"
+    "세부 내역은 같습니다", "일부 거래", "두 일치 항목",
+    "가족이 모두 번갈아 사용", "금액만 건너뛰고",             # 앞 글자 검사만 막는 사례 ("두 번", "만 건")
+])
+def test_number_word_false_positives_are_gone(text):
+    from fds_investigator.agent.verify import _NUMBER_WORDS
+    assert _NUMBER_WORDS.search(text) is None, text
+
+
+@pytest.mark.parametrize("text", ["두 배", "세 건", "열 번", "다섯 개", "두 달", "사흘이 아니라 세 일 동안", "몇 배", "절반"])
+def test_number_words_still_caught(text):
+    from fds_investigator.agent.verify import _NUMBER_WORDS
+    assert _NUMBER_WORDS.search(text), text
+
+
+def test_27b_inject_marker_summary_now_passes(snaps):
+    rep = report(f("counter", "대상 금액이 {0}이며 {1}입니다.", ev(U90, "/stats/target_to_mean_ratio", 1.0),
+                   ev(U90, EXCEEDS, False)), rec="no_anomaly_found",
+                 summary="대상 거래는 최근 이용 패턴과 금액·업종 모두 일치하며, 평소 소비와 다른 점을 찾지 못했습니다.")
+    assert verify_report(rep, snaps).ok
+
+
+def test_consistency_violation_does_not_hide_other_failures(sparse_snaps):
+    # 27B new 첫 제출: 추가 검토 권고인데 suspicion이 없음(allOf 위반) + 근거 미참조.
+    # 이전에는 allOf 위반만 보고되어 모델이 권고만 고치고 근거 미참조로 재실패했음
+    rep = report(f("gap", "기본 {0} 비교 기간에 거래 이력이 없습니다.",
+                   ev(NEW90, "/basis/lookback_days", 90), ev(NEW90, "/stats/txn_count", 0)),
+                 rec="further_review_recommended")
+    got = {(x["code"], x["where"]) for x in verify_report(rep, sparse_snaps).failures}
+    assert any(c == "REPORT_SCHEMA_INVALID" for c, _ in got)
+    assert ("EVIDENCE_NOT_REFERENCED", "/findings/0/evidence/1") in got
+
+
+@pytest.mark.parametrize("rep", [
+    {"summary": "s", "findings": [{"kind": "gap", "statement": "s", "evidence": "x"}], "recommendation": "insufficient_evidence"},
+    {"summary": "s", "findings": [{"kind": "gap", "statement": 3, "evidence": []}], "recommendation": "insufficient_evidence"},
+    {"summary": "s", "findings": [{"kind": "gap", "statement": "{0}", "evidence": [{"path": "/stats/txn_count", "value": 5}]}],
+     "recommendation": "insufficient_evidence"},
+], ids=["evidence-not-list", "statement-not-str", "evidence-id-missing"])
+def test_broken_shape_still_stops_at_v1_without_crashing(snaps, rep):
+    r = verify_report(rep, snaps)
+    assert {x["code"] for x in r.failures} == {"REPORT_SCHEMA_INVALID"}
