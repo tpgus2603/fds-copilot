@@ -72,6 +72,13 @@ def build(a: argparse.Namespace, prog: str) -> tuple[ModelClient, Limits, dict]:
             print(f"[{prog}] --context-window는 max_tokens({limits.max_tokens})보다 커야 합니다", file=sys.stderr)
             sys.exit(2)
         limits = dataclasses.replace(limits, context_window=a.context_window)
+    # DB가 없으면 모든 사례가 DATA_SOURCE_UNAVAILABLE로 끝나 평가 결과가 통째로 무의미해집니다. 실행 전에 막습니다.
+    # 툴 서버는 읽기 전용(mode=ro)으로 열어 파일을 만들지 않으므로 여기서 확인해도 경쟁 조건이 생기지 않습니다.
+    if not Path(a.db).is_file():
+        print(f"[{prog}] DB 파일이 없습니다: {a.db}\n"
+              f"  먼저 적재하십시오: uv run --locked python -m fds_investigator.load_csv "
+              f"../data/fixtures/transactions.csv {a.db}", file=sys.stderr)
+        sys.exit(2)
 
     meta: dict = {"provider": a.provider, "profile": profile}
     if isinstance(client, OpenAICompatibleModelClient):

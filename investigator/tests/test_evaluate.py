@@ -154,11 +154,33 @@ async def test_oracle_meets_every_expectation_except_time_limit(db):
     assert met.pop("time_limit") is False
     assert all(met.values()), [r for r in rows if not r["expectation_met"]]
     by_case = {r["case"]: r for r in rows}
-    assert by_case["missing"]["reason"] == "BASELINE_UNAVAILABLE"
+    assert by_case["missing"]["reason"] == "BASELINE_UNAVAILABLE" and by_case["missing"]["error_code"] == "NOT_FOUND"
     assert by_case["token_budget"]["reason"] == "TOKEN_BUDGET"
     assert len(traces) == 12 and all("steps" in t["trace"] for t in traces)
     assert by_case["merchtypical"]["checks"]["must_call"] and by_case["merchtypical"]["checks"]["must_cite"]
     assert "compute_geo_anomaly" in by_case["geo"]["tools_called"] and by_case["geo"]["checks"]["must_call"]
+
+
+async def test_missing_case_is_not_passed_by_an_absent_database(tmp_path):
+    # 2026-11-22 실측: DB를 지우고 적재하지 않은 채 실행 → 모든 사례가 DATA_SOURCE_UNAVAILABLE로 끝났는데
+    # `missing`만 사유(BASELINE_UNAVAILABLE)가 같아 통과로 집계됨. 원인 코드까지 보면 불충족이어야 합니다.
+    rows, _ = await run_cases(load_cases(DEFAULT_CASES, ["missing"]), OracleModel(), "fake", Limits(),
+                              _session(tmp_path / "absent.sqlite"))
+    row = rows[0]
+    assert row["reason"] == "BASELINE_UNAVAILABLE" and row["error_code"] == "DATA_SOURCE_UNAVAILABLE"
+    assert row["checks"]["error_code"] is False and row["expectation_met"] is False
+
+
+def test_eval_cli_refuses_to_start_without_database(tmp_path, monkeypatch, capsys):
+    from fds_investigator.agent import evaluate
+    out = tmp_path / "eval.json"
+    monkeypatch.setattr("sys.argv", ["fds-eval", "--provider", "openai", "--model", "q",
+                                     "--db", str(tmp_path / "absent.sqlite"), "--out", str(out)])
+    with pytest.raises(SystemExit) as exc:
+        evaluate.main()
+    err = capsys.readouterr().err
+    assert exc.value.code == 2 and "DB 파일이 없습니다" in err and "load_csv" in err
+    assert not out.exists()                                     # 무의미한 결과 파일을 남기지 않음
 
 
 async def test_gullible_model_is_caught_on_injection_cases(db):

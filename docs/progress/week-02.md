@@ -220,6 +220,14 @@ W1의 #12(Codex), #13(사람)과 병행합니다. #14는 W1 결과에 의존하�
 - 조치: 모델 호출은 Python 조사 서비스만 담당한다는 결정(docs/08 2.3)대로 Spring AI 스타터 2종과 BOM 제거. `backend-ci` 워크플로 추가(JDK 17, 래퍼 jar 검증, API 키 없이 `./gradlew test`)
 - 남은 일: 패키지명 `com.example.fdscopliot` 변경(이름 결정 필요, #16)
 
+## 2026-11-22 평가 v2 첫 시도 실패와 평가기 보강
+- 현상: DB를 지운 뒤 적재 없이 `fds-eval` 실행 → 12개 사례 모두 1초 만에 `BASELINE_UNAVAILABLE`(원인 `DATA_SOURCE_UNAVAILABLE`). 적재 명령을 안내에서 빠뜨린 것이 직접 원인
+- 이 실패가 드러낸 평가기 결함 2건과 루프 결함 1건:
+  1. **거짓 통과**: `missing` 사례가 사유만 비교해 DB 부재도 통과(2/12 중 1건). 원인 오류 코드 `error_code: NOT_FOUND`까지 비교하도록 기대 형식 확장
+  2. **사전 점검 부재**: DB가 없으면 무의미한 결과 파일이 만들어짐 → `fds-eval`·`fds-investigate`가 시작 전에 DB 파일을 확인하고 적재 명령을 안내하며 종료(코드 2)
+  3. **RuntimeWarning (`coroutine 'McpToolSession.call' was never awaited`)**: `wait_for(session.call(...), remaining())`의 인자 평가 순서상 코루틴을 먼저 만든 뒤 마감 검사가 `_Stop`을 던져 코루틴이 버려짐. 남은 시간을 먼저 계산하도록 순서 변경. 동작 결과(TIME_LIMIT)는 같았고 경고만 났음
+- 테스트 3개(DB 부재 재현, CLI 사전 점검, 마감 직후 코루틴 미생성), 변이 확인. 전체 477개
+
 ## 다음 작업
 1. DB 재적재 → 평가 v2 (27B, 툴 3종, 12개). #57·#41 병합 완료
 2. #16 백엔드 정리 PR 병합 → #42 (gradle wrapper 9.9.1)를 backend-ci로 확인 후 병합

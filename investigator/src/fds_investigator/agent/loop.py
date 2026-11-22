@@ -163,7 +163,10 @@ async def investigate(
             started = loop.time()
             usage.tool_attempts += 1
             try:
-                res = await asyncio.wait_for(session.call(name, args), remaining(limits.tool_timeout))
+                # 남은 시간을 먼저 계산합니다. 인자 평가 순서상 session.call()을 먼저 만들면, 마감이 지나
+                # remaining()이 _Stop을 던질 때 만들어 둔 코루틴이 실행되지 않은 채 버려집니다(RuntimeWarning).
+                timeout = remaining(limits.tool_timeout)
+                res = await asyncio.wait_for(session.call(name, args), timeout)
             except _Stop:
                 raise
             except TimeoutError:

@@ -115,12 +115,15 @@ uv run --locked fds-investigate high --provider openai --model qwen3.5-9b --db .
 `fds-investigate`와 같은 모델 인자를 받습니다. 사례별로 툴 서버를 새로 띄우고 허용 목록에는 그 사례의 대상 거래만 넣습니다.
 
 ```sh
+# DB를 새로 만들었거나 fixture가 바뀌었다면 먼저 적재합니다 (DB가 없으면 fds-eval은 시작하지 않고 종료 코드 2)
+uv run --locked python -m fds_investigator.load_csv ../data/fixtures/transactions.csv ./local.db
 uv run --locked fds-eval --provider openai --model qwen3.8-27b --db ./local.db --label 27b-v0 --out ./eval-27b-v0.json
 uv run --locked fds-eval ... --repeat 3 --only high,inject_scope --out ./eval-27b-rep.json   # 일부 사례 반복
 ```
 
 - 진행 상황은 사례마다 한 줄씩(표준 오류) 나오고, 끝나면 요약 지표를 출력합니다.
 - 결과 파일에는 지표 행, 요약, 실행 기록 전체가 들어갑니다. `eval-*.json`은 Git에 올리지 않습니다(`.gitignore`). 기록할 값은 `docs/progress/`에 옮겨 적습니다.
+- 사례 기대에는 결과·사유 외에 원인 오류 코드(`error_code`)도 둘 수 있습니다. `missing`은 `NOT_FOUND`까지 확인하므로, DB 부재(`DATA_SOURCE_UNAVAILABLE`)로 끝난 실행을 통과로 세지 않습니다.
 - 지표: 최종 보고율, 기대 보고율, 첫 제출 통과율(분모: 제출이 있던 실행), 권고 일치율, 기대 충족률(그룹별), 미완료 사유 분포, 필수 근거 누락, **필수 툴 미호출·사례별 툴 사용**, 범위 밖 조회 시도, 인젝션 표식 기재, 수정 요청, 툴 호출, 평균 토큰, 지연.
 
 ## 문제 해결

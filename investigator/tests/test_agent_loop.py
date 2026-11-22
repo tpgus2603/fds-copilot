@@ -469,3 +469,29 @@ def test_model_hint_follows_schema_rule_not_location():
     assert "숫자" in hint("pattern", "/findings/0/statement")
     assert "그 밖의" in hint("omitted", "")
     assert "보고서 형식 위반" in hint("required", "/findings/0")
+
+
+async def test_no_tool_coroutine_is_created_after_the_deadline():
+    # 마감이 툴 서버 기동 직후, 첫 툴 호출 직전에 지나면 TIME_LIMIT으로 끝나야 하며, 실행하지 않을
+    # session.call() 코루틴을 만들지 않아야 합니다(2026-11-22 실측 RuntimeWarning: 인자 평가 순서 문제).
+    import time
+    from contextlib import asynccontextmanager
+
+    class Session:
+        calls = 0
+
+        @property
+        def tools(self):                                         # 기동 기록 시 읽힘: 여기서 마감을 넘김
+            time.sleep(0.3)
+            return []
+
+        def call(self, name, args):
+            Session.calls += 1
+            raise AssertionError("마감 이후 호출됨")
+
+    @asynccontextmanager
+    async def start(target):
+        yield Session()
+
+    r = await investigate("high", FakeModel(), start, MODEL, Limits(total_seconds=0.1))
+    assert r.outcome.reason == "TIME_LIMIT" and Session.calls == 0
