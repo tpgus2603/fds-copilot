@@ -1,0 +1,33 @@
+name: backend-ci
+
+on:
+  pull_request:
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"   # build.gradle 툴체인과 같은 버전
+      # 래퍼 jar 검증(위조된 gradle-wrapper.jar 차단)과 Gradle 캐시
+      - uses: gradle/actions/setup-gradle@v5
+      - name: Tests
+        # API 키 없이 통과해야 합니다. 외부 서비스 자격 증명이 필요한 빈이 생기면 이 단계가 실패합니다.
+        run: ./gradlew test --no-daemon

@@ -208,7 +208,7 @@ FastAPI를 붙인 Python 계층도 백엔드입니다. 다만 Spring과 책임�
 | # | 조치 | 시점 |
 |---|---|---|
 | 1 | Git 초기화, `.gitignore`에 `.env`, `.venv`, `build/`, `.gradle/`, `.idea/` 포함 확인 | 1주차 시작 전 |
-| 2 | `fdscopliot`에서 Spring AI 스타터 2종 제거 | Spring 작업 시작 시(4주차 이전) |
+| 2 | `fdscopliot`에서 Spring AI 스타터 2종 제거 | 완료(2026-11-22, #16). 2.3절에서 예상한 자동 설정 오류가 Gradle 래퍼 갱신(#42) 확인 중 실제로 발생 |
 | 3 | 테스트 DB를 H2 대신 MySQL 컨테이너로 할지 결정 | 4주차 |
 | 4 | MCP 근거 검증: 같은 서버를 Claude Code와 직접 만든 클라이언트에서 호출 | 1주차 완료 기준 |
 | 5 | 이 문서와 `02_architecture.md`, `05_roadmap.md`의 불일치 정리 (`07` 결정 반영, 서비스 명칭 통일) | 1주차 중 |

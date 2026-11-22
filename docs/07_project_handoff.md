@@ -20,7 +20,7 @@
 | 경로 | 상태 |
 |---|---|
 | `docs/` | 헌장(00), 데이터셋(01), 아키텍처(02), 로드맵(05), 인수인계(07), 기술 스택 검토(08), 주차별 기록(`progress/`) 작성. 툴 명세(03), 에이전트 워크플로(04)는 미작성 |
-| `backend/` | Spring Boot 기본 프로젝트. 도메인 기능 미구현. 패키지명(`com.example.fdscopliot`)과 Spring AI 스타터 정리 필요 |
+| `backend/` | Spring Boot 기본 프로젝트. 도메인 기능 미구현. 패키지명(`com.example.fdscopliot`) 정리 필요. Spring AI 스타터는 제거함(#16, 2026-11-22) |
 | `investigator/` | Python 3.12 + uv 환경(`mcp`, `anthropic`, `pydantic`, `pytest`). 소스 코드 없음 |
 | `contracts/`, `infra/`, `frontend/` | 미생성 또는 빈 폴더 |
 | CI | `investigator-ci`(uv 동기화, pytest), `security`(gitleaks) |
