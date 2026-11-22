@@ -214,10 +214,16 @@ W1의 #12(Codex), #13(사람)과 병행합니다. #14는 W1 결과에 의존하�
 - #55 병합 후 main 위로 리베이스 (이 기록 파일 충돌만 해소)
 - 주의: 인덱스·fixture가 바뀌어 `local.db`, `eval.db`는 다시 적재해야 함
 
+## 2026-11-22 백엔드 테스트 실패 원인과 Spring AI 스타터 제거 (#16)
+- 발견: Dependabot #42(Gradle 래퍼 9.9.0 → 9.9.1)를 Mac에서 확인하던 중 `contextLoads()` 실패
+- 원인: Spring AI OpenAI 스타터의 자동 설정이 `openAiSdkAudioSpeechModel` 빈을 만들며 SDK 클라이언트를 생성 → API 키가 없어 `At least one credential source must be specified`. Gradle 버전과 무관한 기존 결함이며, 백엔드 CI가 없어 지금까지 드러나지 않음
+- 조치: 모델 호출은 Python 조사 서비스만 담당한다는 결정(docs/08 2.3)대로 Spring AI 스타터 2종과 BOM 제거. `backend-ci` 워크플로 추가(JDK 17, 래퍼 jar 검증, API 키 없이 `./gradlew test`)
+- 남은 일: 패키지명 `com.example.fdscopliot` 변경(이름 결정 필요, #16)
+
 ## 다음 작업
-1. #57 병합 → DB 재적재 → 평가 v2 (27B, 툴 3종, 12개)
-2. 가맹점 툴 후속: 조회 기간 고정 집합, `insufficient` 스키마 보강 (Gemini 비차단 제안)
-3. Dependabot #41 (anthropic 2.8), #42 (gradle wrapper 9.9.1)
+1. DB 재적재 → 평가 v2 (27B, 툴 3종, 12개). #57·#41 병합 완료
+2. #16 백엔드 정리 PR 병합 → #42 (gradle wrapper 9.9.1)를 backend-ci로 확인 후 병합
+3. 가맹점 툴 후속 #58: 조회 기간 고정 집합, `insufficient` 스키마 보강 (Gemini 비차단 제안)
 4. 반복 측정 `--repeat`, 9B 기준선 재측정 여부 결정
 5. W4: Kaggle 적재와 기준값 재조정, 룰 엔진
 6. 6주차 품질 후보: 단위 중복(`…0건]건`), 대괄호 뒤 조사, 요약 검증 불가, 근거 몰아넣기 문장
