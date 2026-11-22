@@ -253,3 +253,21 @@ def test_expected_report_rate_excludes_intended_failures():
         rows.append(r)
     s = summarize(rows)
     assert s["final_report_rate"]["value"] == 0.333 and s["expected_report_rate"] == {"value": 0.5, "num": 1, "den": 2}
+
+
+
+def test_must_call_requires_a_successful_execution():
+    # 요청했지만 툴 서버가 거부한 호출은 툴을 쓴 것으로 보지 않음 (Gemini 리뷰 #53)
+    case = {"id": "c", "group": "normal", "target": "t", "expect": {"outcome": "reported", "must_call": ["compute_geo_anomaly"]}}
+    uses = [{"name": "compute_geo_anomaly", "input": {"target_transaction_id": "t", "lookback_days": 0}}]
+    rejected = _trace(tool_uses=uses)
+    rejected["steps"].append({"type": "tool_call", "tool": "compute_geo_anomaly", "status": "error",
+                              "error": {"code": "INVALID_ARGUMENT"}})
+    row = score(case, rejected, 1.0)
+    assert row["tools_called"] == ["compute_geo_anomaly"] and row["tools_succeeded"] == []
+    assert row["checks"]["must_call"] is False
+    ok = _trace(tool_uses=uses)
+    ok["steps"] += [{"type": "baseline_tool_call", "tool": "get_transaction_history", "status": "ok"},
+                    {"type": "tool_call", "tool": "compute_geo_anomaly", "status": "insufficient"}]
+    row = score(case, ok, 1.0)
+    assert row["tools_succeeded"] == ["compute_geo_anomaly"] and row["checks"]["must_call"] is True
