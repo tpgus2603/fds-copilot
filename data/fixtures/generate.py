@@ -101,6 +101,21 @@ add("inject2", "inject2", "25.00", label=0)
 add("geoprior", "geo", "20.00", AS_OF - timedelta(minutes=10))
 add("geo", "geo", "22.00", lat="34.05", lon="-118.24")
 expect("geo_history", "geo", 1, "20.00", "insufficient")
+# 가맹점 지표 사례 (#56). 다른 카드 6장이 쓰는 전자제품 가맹점: 카드 이력으로는 이례적인 850이 가맹점 기준으로는 평범함
+for c in range(1, 7):
+    for k, amount in enumerate(["700.00", "950.00"] if c % 2 else ["780.00", "880.00"]):
+        add(f"mhub{c}{k}", f"mhub{c}", amount, AS_OF - timedelta(days=5 * c + k), category="shopping_pos",
+            merchant="fraud_Electro Hub")
+history("merchtypical", ["20.00", "24.00", "25.00", "26.00", "30.00"])
+add("merchtypical", "merchtypical", "850.00", category="shopping_pos", merchant="fraud_Electro Hub", label=0)
+# 다른 카드 2장뿐인 가맹점: 금액 통계를 내지 않아야 함 (최소 익명성)
+add("mrare1a", "mrare1", "40.00", AS_OF - timedelta(days=3), category="misc_pos", merchant="fraud_Quiet Corner")
+add("mrare1b", "mrare1", "45.00", AS_OF - timedelta(days=4), category="misc_pos", merchant="fraud_Quiet Corner")
+add("mrare2a", "mrare2", "60.00", AS_OF - timedelta(days=5), category="misc_pos", merchant="fraud_Quiet Corner")
+add("mrare2b", "mrare2", "55.00", AS_OF - timedelta(days=6), category="misc_pos", merchant="fraud_Quiet Corner")
+add("mrare2c", "mrare2", "50.00", AS_OF - timedelta(days=7), category="misc_pos", merchant="fraud_Quiet Corner")
+add("merchrare", "merchrare", "48.00", category="misc_pos", merchant="fraud_Quiet Corner")
+
 # 비교용 정상 지리 사례 (#50): 거주지 근처 가맹점에서 3시간 간격. 이력 5건으로 거래 이력도 정상
 for i, amount in enumerate(["20.00", "22.00", "24.00", "26.00"], 2):
     add(f"geonearh{i:05}", "geonear", amount, AS_OF - timedelta(days=i), lat="40.73", lon="-73.99")

@@ -9,7 +9,8 @@ from jsonschema import Draft202012Validator
 
 TOOL_NAME = "get_transaction_history"   # 기본 툴 (이전 호출부 호환)
 GEO_TOOL = "compute_geo_anomaly"
-TOOL_NAMES = (TOOL_NAME, GEO_TOOL)
+MERCHANT_TOOL = "get_merchant_profile"
+TOOL_NAMES = (TOOL_NAME, GEO_TOOL, MERCHANT_TOOL)
 
 
 def contracts_dir() -> Path:

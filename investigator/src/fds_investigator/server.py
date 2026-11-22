@@ -13,15 +13,20 @@ import logging
 import sys
 
 import mcp.types as types
-from mcp.shared.exceptions import McpError
 from mcp.server.lowlevel import Server
 from mcp.server.stdio import stdio_server
+from mcp.shared.exceptions import McpError
 
 from . import contracts
 from .config import Settings
 from .errors import ConfigError, ErrorCode
 from .repository import SqliteTransactionRepository, TransactionRepository
-from .service import compute_geo_anomaly, error_result, get_transaction_history
+from .service import (
+    compute_geo_anomaly,
+    error_result,
+    get_merchant_profile,
+    get_transaction_history,
+)
 
 log = logging.getLogger("fds_investigator.server")
 
@@ -34,7 +39,17 @@ GEO_DESCRIPTION = (
     "status가 insufficient이면 조회 기간에 직전 거래가 없거나 좌표가 없어 속도를 계산하지 못한 것입니다.\n"
     "결과의 수치를 인용할 때는 evidence_id를 함께 적으십시오."
 )
-HANDLERS = {contracts.TOOL_NAME: get_transaction_history, contracts.GEO_TOOL: compute_geo_anomaly}
+MERCHANT_DESCRIPTION = (
+    "대상 거래 가맹점의 평소 이용 모습과, 이 카드가 이 가맹점을 써 본 적이 있는지 확인할 때 사용합니다.\n"
+    "기간(기본 90일, lookback_days로 7~365일) 안에 이 가맹점에서 결제한 다른 카드들의 거래 수·카드 수·\n"
+    "평균·중앙값·최댓값과, 대상 금액이 그 평균의 몇 배인지, 최댓값을 넘는지를 돌려줍니다.\n"
+    "카드 이력만으로는 이례적인 금액이 이 가맹점에서는 평범한지 판단하는 데 쓸 수 있습니다.\n"
+    "다른 카드 거래가 5건 미만이거나 다른 카드가 3장 미만이면 status가 insufficient이고 금액 통계는 null입니다.\n"
+    "이 값은 사기율이 아니라 이용 집계이며, 정답 라벨을 쓰지 않습니다.\n"
+    "결과의 수치를 인용할 때는 evidence_id를 함께 적으십시오."
+)
+HANDLERS = {contracts.TOOL_NAME: get_transaction_history, contracts.GEO_TOOL: compute_geo_anomaly,
+            contracts.MERCHANT_TOOL: get_merchant_profile}
 
 DESCRIPTION = (
     "대상 거래의 금액이나 업종이 이 카드의 평소 이용 패턴과 다른지 확인할 때 사용합니다.\n"
@@ -67,7 +82,8 @@ def build_server(settings: Settings, repo: TransactionRepository) -> Server:
 
     @server.list_tools()
     async def list_tools() -> list[types.Tool]:
-        descriptions = {contracts.TOOL_NAME: DESCRIPTION, contracts.GEO_TOOL: GEO_DESCRIPTION}
+        descriptions = {contracts.TOOL_NAME: DESCRIPTION, contracts.GEO_TOOL: GEO_DESCRIPTION,
+                        contracts.MERCHANT_TOOL: MERCHANT_DESCRIPTION}
         return [
             types.Tool(
                 name=name,

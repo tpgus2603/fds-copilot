@@ -34,6 +34,10 @@ _POLARITY: dict[str, dict[Any, str]] = {
     # compute_geo_anomaly (#52): 기준 초과는 의심, 기준 이내는 정상 정황
     "/previous/exceeds_plausible_speed": {True: "suspicion", False: "counter"},
     "/target/far_from_home": {True: "suspicion", False: "counter"},
+    # get_merchant_profile (#56): 가맹점의 다른 카드 최댓값 초과는 의심, 이하는 정상 정황.
+    # 이 카드의 첫 이용은 거래 이력의 '처음 쓰는 업종'과 같은 방향으로 둡니다.
+    "/merchant_stats/target_exceeds_max": {True: "suspicion", False: "counter"},
+    "/card_at_merchant/seen_before": {False: "suspicion", True: "counter"},
 }
 _CATEGORY_SHARE = re.compile(r"^/category_distribution/[0-9]{1,2}/category$")
 # V10: evidence_id = EV-<툴>-<대상>-<기간>d
@@ -44,7 +48,8 @@ _EVIDENCE_ID = EVIDENCE_ID
 # 방향(의심/정상)을 정하지 못합니다. 예: 이력이 비어 seen_before=false인 것은 "처음 쓰는 업종"이 아니라
 # "확인할 이력이 없음"입니다. 이런 결과의 이력 기반 필드는 gap에서만 인용할 수 있습니다.
 SPARSE_STATUSES = ("empty", "insufficient")
-HISTORY_FIELDS = ("/stats/", "/target_category/", "/category_distribution/", "/recent_transactions/")
+HISTORY_FIELDS = ("/stats/", "/target_category/", "/category_distribution/", "/recent_transactions/",
+                  "/merchant_stats/")   # 가맹점 통계도 다른 카드 표본이 부족하면 방향을 정하지 못함 (#56)
 
 
 def _sparse_history_direction(kind: str, path: str, snap: dict) -> str | None:

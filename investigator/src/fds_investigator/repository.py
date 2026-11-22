@@ -22,6 +22,10 @@ class TransactionRepository(Protocol):
         """start 이상 end_inclusive 이하의 같은 카드 거래. 경계 처리는 호출자가 합니다."""
         ...
 
+    def merchant_history(self, merchant_name: str, start: datetime, end_inclusive: datetime) -> list[Transaction]:
+        """start 이상 end_inclusive 이하의 같은 가맹점 거래(모든 카드). 경계·카드 구분은 호출자가 합니다."""
+        ...
+
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS transactions (
@@ -36,6 +40,7 @@ CREATE TABLE IF NOT EXISTS transactions (
     home_distance_km TEXT           -- 거주지-가맹점 거리(km, 10진수 문자열). 거주지 좌표 자체는 저장하지 않음
 );
 CREATE INDEX IF NOT EXISTS ix_transactions_card_time ON transactions (card_token, trans_at);
+CREATE INDEX IF NOT EXISTS ix_transactions_merchant_time ON transactions (merchant_name, trans_at);
 """
 
 
@@ -84,5 +89,12 @@ class SqliteTransactionRepository:
         rows = self._query(
             "SELECT * FROM transactions WHERE card_token = ? AND trans_at >= ? AND trans_at <= ?",
             (card_token, start.strftime(TS_FORMAT), end_inclusive.strftime(TS_FORMAT)),
+        )
+        return [_row_to_txn(r) for r in rows]
+
+    def merchant_history(self, merchant_name: str, start: datetime, end_inclusive: datetime) -> list[Transaction]:
+        rows = self._query(
+            "SELECT * FROM transactions WHERE merchant_name = ? AND trans_at >= ? AND trans_at <= ?",
+            (merchant_name, start.strftime(TS_FORMAT), end_inclusive.strftime(TS_FORMAT)),
         )
         return [_row_to_txn(r) for r in rows]
