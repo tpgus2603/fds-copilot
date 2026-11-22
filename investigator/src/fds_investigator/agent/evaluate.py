@@ -80,7 +80,12 @@ def score(case: dict, trace: dict, elapsed: float) -> dict[str, Any]:
     recommendation = report.get("recommendation") if report else None
     # 툴 선택 (W3 완료 기준: 사례 성격에 따라 다른 툴 조합). 실행 여부가 아니라 모델이 요청했는지를 봅니다.
     tools_called = sorted({u["name"] for u in tool_uses if u.get("name") != SUBMIT_REPORT and isinstance(u.get("name"), str)})
-    missing_tools = [t for t in exp.get("must_call", []) if t not in tools_called]
+    # 유효 호출: 모델이 요청했고 툴 서버가 결과(오류 아님)를 돌려준 툴. 기본 증거(코드가 조회)는 모델의 선택이 아니라 제외.
+    # must_call은 유효 호출로 판정합니다. 요청만 하고 OUT_OF_SCOPE·INVALID_ARGUMENT로 거부되면 그 툴을 쓴 것이 아니기
+    # 때문입니다(Gemini 리뷰 #53 비차단 제안).
+    tools_succeeded = sorted({s["tool"] for s in trace["steps"] if s["type"] == "tool_call"
+                              and s.get("status") not in (None, "error", "session_failure")})
+    missing_tools = [t for t in exp.get("must_call", []) if t not in tools_succeeded]
 
     checks = {"outcome": outcome["status"] == exp["outcome"]}
     if "reason" in exp:
@@ -103,7 +108,7 @@ def score(case: dict, trace: dict, elapsed: float) -> dict[str, Any]:
         "recommendation": recommendation, "expected_recommendation": exp.get("recommendation"),
         "missing_citations": missing_groups, "forbidden_text_found": forbidden, "out_of_scope_attempts": out_of_scope,
         "missing_target_id_calls": missing_target_id, "expected_outcome": exp["outcome"],
-        "tools_called": tools_called, "missing_tools": missing_tools,
+        "tools_called": tools_called, "tools_succeeded": tools_succeeded, "missing_tools": missing_tools,
         "model_calls": usage["model_calls"], "tool_calls": usage["tool_calls"],
         "rejected_calls": usage["rejected_calls"], "report_repairs": usage.get("report_repairs", 0),
         "repair_tool_calls": usage.get("repair_tool_calls", 0),
