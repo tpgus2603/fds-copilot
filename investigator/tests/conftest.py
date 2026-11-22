@@ -47,6 +47,12 @@ class FakeRepo:
         return [r for r in self.rows.values()
                 if r.card_token == card_token and start <= r.trans_at <= end_inclusive]
 
+    def merchant_history(self, merchant_name, start, end_inclusive):
+        self.calls.append("merchant")
+        self._maybe_fail()
+        return [r for r in self.rows.values()
+                if r.merchant_name == merchant_name and start <= r.trans_at <= end_inclusive]
+
 
 @pytest.fixture
 def allow_all() -> AllowList:

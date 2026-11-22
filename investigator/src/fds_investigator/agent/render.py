@@ -49,6 +49,12 @@ def _fmt(template: str, fn: Callable[[Any], str] = _num) -> Renderer:
     return render
 
 
+def _merchant_ratio(v: Any, period: int | None = None) -> str:
+    if v is None:
+        return f"{_prefix(period)}가맹점 평균 대비 비율 없음"
+    return f"{_prefix(period)}가맹점 평균 대비 {_num(v)}배"
+
+
 def _ratio(v: Any, period: int | None = None) -> str:
     if v is None:
         return f"{_prefix(period)}평균 대비 비율 계산 불가"
@@ -79,6 +85,19 @@ CATALOG: list[tuple[re.Pattern[str], Renderer]] = [
     (r"/previous/exceeds_plausible_speed", _bool("환산 이동 속도 기준 초과", "환산 이동 속도 기준 이내")),
     (r"/basis/speed_threshold_kmh", _fmt("이동 속도 기준 {v}km/h")),
     (r"/basis/home_distance_threshold_km", _fmt("거주지 거리 기준 {v}km")),
+    # get_merchant_profile (#56). 가맹점 통계는 다른 카드 기준임을 라벨에 드러내고, 사기율로 쓰지 않습니다.
+    (r"/merchant/merchant_name", _fmt("가맹점 {v}")),
+    (r"/merchant/category", _fmt("가맹점 업종 {v}")),
+    (r"/merchant_stats/txn_count", _fmt("{p}가맹점의 다른 카드 거래 {v}건")),
+    (r"/merchant_stats/card_count", _fmt("{p}가맹점을 이용한 다른 카드 {v}장")),
+    (r"/merchant_stats/amount_mean", _fmt("{p}가맹점 평균 금액 {v}")),
+    (r"/merchant_stats/amount_median", _fmt("{p}가맹점 중앙값 {v}")),
+    (r"/merchant_stats/amount_max", _fmt("{p}가맹점 최댓값 {v}")),
+    (r"/merchant_stats/target_to_mean_ratio", _merchant_ratio),
+    (r"/merchant_stats/target_exceeds_max", _bool("{p}가맹점 최댓값 초과", "{p}가맹점 최댓값 이하")),
+    (r"/card_at_merchant/seen_before", _bool("{p}이 카드의 이 가맹점 이용 이력 있음", "{p}이 카드의 이 가맹점 이용 이력 없음")),
+    (r"/card_at_merchant/count", _fmt("{p}이 카드의 이 가맹점 이용 {v}건")),
+    (r"/card_at_merchant/last_seen_at", _fmt("{p}이 카드의 이 가맹점 최근 이용 {v}")),
     (r"/basis/lookback_days", _fmt("비교 기간 {v}일")),
     (r"/basis/window_start", _fmt("비교 시작 {v}")),
     (r"/basis/as_of", _fmt("기준 시점 {v}")),
@@ -104,7 +123,8 @@ def renderer_for(path: str) -> Renderer | None:
 
 
 # 조회 기간에 따라 값이 달라지는 경로 (#36). /target/*(대상 거래 자체)와 /basis/*(기준 정보)는 제외합니다.
-PERIOD_SCOPED = ("/stats/", "/target_category/", "/category_distribution/", "/recent_transactions/")
+PERIOD_SCOPED = ("/stats/", "/target_category/", "/category_distribution/", "/recent_transactions/",
+                 "/merchant_stats/", "/card_at_merchant/")
 # 근거 ID 형식 EV-<툴>-<대상>-<기간>d. 검증 V10과 기간 라벨이 같은 정의를 씁니다 (Gemini 리뷰 #37).
 EVIDENCE_ID = re.compile(r"^(EV-[A-Z]{2}-[A-Za-z0-9]{1,64})-([0-9]{1,3})d$")
 

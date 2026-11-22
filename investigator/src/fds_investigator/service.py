@@ -13,6 +13,8 @@ from .errors import RETRYABLE, DataSourceUnavailable, ErrorCode
 from .geo import DEFAULT_LOOKBACK_DAYS as GEO_LOOKBACK
 from .geo import build_geo_result, previous_transaction
 from .history import build_result, split_window, window_start
+from .merchant import DEFAULT_LOOKBACK_DAYS as MERCHANT_LOOKBACK
+from .merchant import build_merchant_result, split_merchant_window
 from .repository import TransactionRepository
 
 log = logging.getLogger(__name__)
@@ -131,3 +133,47 @@ async def compute_geo_anomaly(
 
     previous = previous_transaction(target, candidates, lookback_days)
     return build_geo_result(target, previous, lookback_days, contracts.schema_version(tool))
+
+
+async def get_merchant_profile(
+    arguments: dict[str, Any] | None,
+    allowlist: AllowList,
+    repo: TransactionRepository,
+    timeout_seconds: float = 5.0,
+) -> dict:
+    tool = contracts.MERCHANT_TOOL
+    args = arguments or {}
+
+    # 1. 입력 검증 (계약 스키마)
+    errors = sorted(contracts.input_validator(tool).iter_errors(args), key=lambda e: list(e.path))
+    if errors:
+        where = "/".join(str(p) for p in errors[0].path) or "(root)"
+        return error_result(ErrorCode.INVALID_ARGUMENT, where, tool)
+
+    target_id: str = args["target_transaction_id"]
+    lookback_days = int(args.get("lookback_days", MERCHANT_LOOKBACK))
+
+    # 2. 허용 목록 (존재 확인보다 먼저)
+    if not allowlist.permits(target_id):
+        return error_result(ErrorCode.OUT_OF_SCOPE, tool=tool)
+
+    try:
+        async with asyncio.timeout(timeout_seconds):
+            # 3. 대상 거래 존재
+            target = await asyncio.to_thread(repo.get_transaction, target_id)
+            if target is None:
+                return error_result(ErrorCode.NOT_FOUND, tool=tool)
+            # 4. 가맹점 거래: 경계를 포함해 요청하고, 기간·같은 초·카드 구분은 순수 함수가 강제합니다.
+            start = window_start(target.trans_at, lookback_days)
+            candidates = await asyncio.to_thread(repo.merchant_history, target.merchant_name, start, target.trans_at)
+    except TimeoutError:
+        return error_result(ErrorCode.TIMEOUT, tool=tool)
+    except DataSourceUnavailable:
+        log.exception("data source unavailable")
+        return error_result(ErrorCode.DATA_SOURCE_UNAVAILABLE, tool=tool)
+    except Exception:
+        log.exception("unexpected error while building merchant profile")
+        return error_result(ErrorCode.INTERNAL, tool=tool)
+
+    others, own = split_merchant_window(target, candidates, start)
+    return build_merchant_result(target, others, own, lookback_days, contracts.schema_version(tool))

@@ -29,9 +29,10 @@ from .verify import resolve_pointer, verify_report
 
 HISTORY_TOOL = "get_transaction_history"
 GEO_TOOL = "compute_geo_anomaly"
+MERCHANT_TOOL = "get_merchant_profile"
 BASELINE_LOOKBACK = 90
 # 툴별 lookback_days 기본값. 생략 호출과 기본값 명시 호출을 같은 조회로 판정하기 위해 씁니다(중복 판정).
-DEFAULT_LOOKBACK = {HISTORY_TOOL: BASELINE_LOOKBACK, GEO_TOOL: 30}
+DEFAULT_LOOKBACK = {HISTORY_TOOL: BASELINE_LOOKBACK, GEO_TOOL: 30, MERCHANT_TOOL: 90}
 TOOL_RETRY_WAIT = 1.0
 TOKEN_MARGIN = 1.05
 

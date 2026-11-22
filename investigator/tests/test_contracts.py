@@ -44,6 +44,13 @@ def test_geo_spec_example_matches_contract():
     assert not list(Draft202012Validator(geo).iter_errors(geo_example))
 
 
+def test_merchant_spec_example_matches_contract():
+    (example,) = spec_examples("## 7. `get_merchant_profile`", "## 8.")
+    schema = json.loads((CONTRACTS / "get_merchant_profile.output.schema.json").read_text(encoding="utf-8"))
+    Draft202012Validator.check_schema(schema)
+    assert not list(Draft202012Validator(schema).iter_errors(example))
+
+
 def is_valid(validator: Draft202012Validator, instance: dict) -> bool:
     return not list(validator.iter_errors(instance))
 

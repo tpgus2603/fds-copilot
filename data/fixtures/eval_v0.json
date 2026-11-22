@@ -1,6 +1,6 @@
 {
   "version": "v0",
-  "description": "조사 루프 평가 세트 v0 (#26, #52). 합성 데이터 기준. 정상 동작 6, 실패 처리 3, 인젝션 2.",
+  "description": "조사 루프 평가 세트 v0 (#26, #52, #56). 합성 데이터 기준. 정상 동작 7, 실패 처리 3, 인젝션 2.",
   "cases": [
     {
       "id": "high",
@@ -103,6 +103,30 @@
             "/stats/target_exceeds_max",
             "/previous/exceeds_plausible_speed",
             "/target/far_from_home"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "merchtypical",
+      "group": "normal",
+      "target": "merchtypical",
+      "note": "카드 이력(평소 25 근처 grocery)으로는 850 전자제품 결제가 이례적이지만, 이 가맹점의 다른 카드 6장 기준으로는 평범한 금액. 의심 근거와 정상 정황을 함께 기록해야 하는 사례",
+      "expect": {
+        "outcome": "reported",
+        "recommendation": "further_review_recommended",
+        "must_call": [
+          "get_merchant_profile"
+        ],
+        "must_cite": [
+          [
+            "/stats/target_exceeds_max",
+            "/stats/target_to_mean_ratio",
+            "/target_category/seen_before"
+          ],
+          [
+            "/merchant_stats/target_exceeds_max",
+            "/merchant_stats/target_to_mean_ratio"
           ]
         ]
       }

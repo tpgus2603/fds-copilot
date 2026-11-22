@@ -1,6 +1,6 @@
 # 03. MCP 툴 명세 (MCP Tool Spec)
 
-이 문서는 툴 서버가 제공하는 MCP 툴의 입출력 계약을 정의합니다. 1주차에 `get_transaction_history`(3절), 3주차에 `compute_geo_anomaly`(6절)를 정의했고, 가맹점·업종 지표 툴(7절)을 추가할 예정입니다. 기계가 검증하는 스키마는 `contracts/mcp/`에 있으며, 이 문서와 스키마가 다르면 스키마가 기준입니다.
+이 문서는 툴 서버가 제공하는 MCP 툴의 입출력 계약을 정의합니다. 1주차에 `get_transaction_history`(3절), 3주차에 `compute_geo_anomaly`(6절)와 `get_merchant_profile`(7절)을 정의했습니다. 기계가 검증하는 스키마는 `contracts/mcp/`에 있으며, 이 문서와 스키마가 다르면 스키마가 기준입니다.
 
 ## 1. 기초: MCP 툴 호출이 동작하는 방식
 
@@ -320,8 +320,54 @@ p95 계산 방식을 명시한 이유는 방식마다 결과가 다르기 때문
 ### 6.6 검사 순서와 오류
 2.1절과 같습니다: 입력 검증 → 허용 목록 → 대상 존재 → 조회. 허용 목록 밖은 존재 확인 전에 `OUT_OF_SCOPE`입니다. 미등록 툴 호출은 JSON-RPC `-32602`입니다(1절).
 
-## 7. 예정된 툴 (3주차)
+## 7. `get_merchant_profile` (3주차, #56)
 
-| 툴 | 목적 | 주의 |
+### 7.1 목적
+대상 거래 가맹점의 평소 이용 모습과, 이 카드가 이 가맹점을 써 본 적이 있는지 확인합니다. 카드 이력으로는 이례적인 금액이 그 가맹점에서는 평범한지(정상 정황), 혹은 가맹점 기준으로도 이례적인지(의심 근거)를 구분하는 데 씁니다.
+
+**라벨을 쓰지 않습니다** (사용자 결정, 2026-11-21). 결과는 이용 집계이며 "사기율"이 아닙니다. 4주차 룰 엔진 이후 "과거 1차 탐지 비중"을 필드로 추가합니다.
+
+### 7.2 입력
+| 필드 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| `target_transaction_id` | string (`^[A-Za-z0-9]{1,64}$`) | 예 | 조사 대상 거래 |
+| `lookback_days` | integer (7~365) | 아니오, 기본 90 | 가맹점 이용 집계 기간 |
+
+### 7.3 출력 (`structuredContent`)
+```json
+{
+  "tool": "get_merchant_profile", "schema_version": "1.0", "status": "ok",
+  "evidence_id": "EV-MP-merchtypical-90d",
+  "basis": {"as_of": "2020-06-21T12:00:00", "window_start": "2020-03-23T12:00:00", "lookback_days": 90,
+            "min_sample": 5, "min_cards": 3},
+  "merchant": {"merchant_name": "Electro Hub", "category": "shopping_pos"},
+  "target": {"transaction_id": "merchtypical", "amount": "850.00"},
+  "merchant_stats": {"txn_count": 12, "card_count": 6, "amount_mean": "827.50", "amount_median": "830.00",
+                     "amount_max": "950.00", "target_to_mean_ratio": 1.03, "target_exceeds_max": false},
+  "card_at_merchant": {"seen_before": false, "count": 0, "last_seen_at": null}
+}
+```
+
+| 상태 | 조건 | 금액 통계 |
 |---|---|---|
-| `get_merchant_profile` | 가맹점·업종의 참고 지표 | 사용자 결정(2026-11-21): 라벨 없는 집계(가맹점 거래량, 이용 카드 수, 금액 분포, 이 카드의 첫 이용 여부)로 먼저 구현하고, 4주차 룰 엔진 이후 "과거 1차 탐지 비중"을 추가. "사기율"로 표현하지 않으며 라벨 기반 지표는 사용하지 않음 |
+| `ok` | 다른 카드 거래 5건 이상 **그리고** 다른 카드 3장 이상 | 공개 |
+| `insufficient` | 다른 카드 거래가 있으나 위 기준 미달 | `null` (건수·카드 수만 공개) |
+| `empty` | 기간 안에 다른 카드 거래 없음 | `null` |
+| `error` | 공통 오류 (3.8절) | 없음 |
+
+### 7.4 계산 규칙
+- **모집단**: 같은 가맹점명, `[as_of - lookback_days, as_of)`, 같은 초와 대상 자신 제외. **다른 카드**의 거래만 `merchant_stats`에, 이 카드의 거래는 `card_at_merchant`에 넣습니다. 가맹점의 평소 모습과 이 카드의 이용 이력을 섞지 않기 위해서입니다
+- **최소 익명성**: 다른 카드가 3장 미만이면 금액 통계를 내지 않습니다. 카드 한두 장의 평균·최댓값은 그 사람들의 결제 금액 자체이기 때문입니다(k-익명성과 같은 원리). 건수 기준 5건은 거래 이력 툴과 같습니다
+- **통계**: 거래 이력 툴과 같은 규칙(Decimal, ROUND_HALF_UP, 비율 분모는 반올림 전 평균, 금액이 모두 0이면 비율 `null`)
+- **출력 제한**: 카드 토큰과 개별 거래는 내지 않습니다. 출력 계약을 `propertyNames`·`additionalProperties: false`로 닫아 필드 추가를 막습니다
+
+### 7.5 해석 주의
+- 가맹점 통계는 다른 카드들의 이용 집계입니다. 가맹점의 위험도나 사기율로 해석하지 않습니다
+- 가맹점 식별은 정규화한 가맹점명입니다(`fraud_` 접두어 제거). 실데이터에서 이름이 같은 다른 가맹점이 있을 수 있으며, 4주차 Kaggle 적재 후 점검합니다
+
+## 8. 예정된 변경
+
+| 항목 | 시점 |
+|---|---|
+| `get_merchant_profile`에 "과거 1차 탐지 비중" 추가 (룰 엔진 결과 기반, 라벨 아님) | 4주차 룰 엔진 이후 |
+| 표본 기준(5건·3장)과 지리 기준(900km/h·300km) 재조정 | 4주차 Kaggle 적재 후 분포 확인 |

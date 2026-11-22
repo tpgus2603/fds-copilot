@@ -104,7 +104,7 @@ def assert_expected(payload: dict, expected: dict) -> None:
 async def test_fixture_history_over_stdio(db):
     async with session_for(db) as session:
         tools = (await session.list_tools()).tools
-        assert [tool.name for tool in tools] == [TOOL, "compute_geo_anomaly"]
+        assert [tool.name for tool in tools] == [TOOL, "compute_geo_anomaly", "get_merchant_profile"]
         for tool in tools:
             for suffix, published in [("input", tool.inputSchema), ("output", tool.outputSchema)]:
                 contract = ROOT / "contracts" / "mcp" / f"{tool.name}.{suffix}.schema.json"
