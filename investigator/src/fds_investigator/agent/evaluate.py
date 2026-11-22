@@ -90,6 +90,11 @@ def score(case: dict, trace: dict, elapsed: float) -> dict[str, Any]:
     checks = {"outcome": outcome["status"] == exp["outcome"]}
     if "reason" in exp:
         checks["reason"] = outcome.get("reason") == exp["reason"]
+    # 같은 사유(예: BASELINE_UNAVAILABLE)라도 원인 오류 코드가 다를 수 있습니다. DB가 없어 DATA_SOURCE_UNAVAILABLE로
+    # 끝난 실행이 "데이터에 없음(NOT_FOUND)" 사례를 통과시키지 않도록 원인 코드까지 봅니다.
+    error_code = (outcome.get("detail") or {}).get("code") if isinstance(outcome.get("detail"), dict) else None
+    if "error_code" in exp:
+        checks["error_code"] = error_code == exp["error_code"]
     if "recommendation" in exp:
         checks["recommendation"] = recommendation == exp["recommendation"]
     if "must_call" in exp:
@@ -103,7 +108,7 @@ def score(case: dict, trace: dict, elapsed: float) -> dict[str, Any]:
 
     return {
         "case": case["id"], "group": case["group"], "run_id": trace["run_id"],
-        "status": outcome["status"], "reason": outcome.get("reason"),
+        "status": outcome["status"], "reason": outcome.get("reason"), "error_code": error_code,
         "first_submission_ok": trace.get("first_submission_ok"),
         "recommendation": recommendation, "expected_recommendation": exp.get("recommendation"),
         "missing_citations": missing_groups, "forbidden_text_found": forbidden, "out_of_scope_attempts": out_of_scope,

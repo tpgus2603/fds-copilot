@@ -135,10 +135,11 @@
       "id": "missing",
       "group": "failure",
       "target": "missing",
-      "note": "허용 목록에는 있으나 데이터에 없음",
+      "note": "허용 목록에는 있으나 데이터에 없음. 원인 코드 NOT_FOUND까지 확인(DB 부재 DATA_SOURCE_UNAVAILABLE과 구분)",
       "expect": {
         "outcome": "incomplete",
-        "reason": "BASELINE_UNAVAILABLE"
+        "reason": "BASELINE_UNAVAILABLE",
+        "error_code": "NOT_FOUND"
       }
     },
     {
